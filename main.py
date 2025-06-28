@@ -17,6 +17,7 @@ from src.data.nba_data_collector import NBADataCollector
 from src.data.feature_engineer import FeatureEngineer
 from src.models.stat_predictors import ModelManager
 from src.predictions.tonight_predictor import TonightPredictor
+from src.evaluation.backtester import NBABacktester
 
 # Setup logging
 logging.basicConfig(
@@ -240,6 +241,37 @@ class NBAStatPredictorApp:
         if not retrained:
             logger.info("No models needed retraining")
 
+    def run_backtest(self, season: str = "2023-24"):
+        """Run a comprehensive backtest for the specified season."""
+        logger.info(f"Running backtest for {season} season...")
+        
+        # Initialize backtester
+        backtester = NBABacktester(self.db_path)
+        
+        try:
+            # Run the backtest
+            results = backtester.run_season_backtest(
+                season=season,
+                train_months=3,
+                min_games_per_player=10  # Reduced from 15 for demo
+            )
+            
+            # Print results
+            backtester.print_backtest_results(results)
+            
+            # Create visualizations (will save plots)
+            backtester.create_backtest_visualizations(results, save_plots=True)
+            
+            logger.info("Backtest completed successfully!")
+            
+        except Exception as e:
+            logger.error(f"Backtest failed: {e}")
+            print(f"\nBacktest failed: {e}")
+            print("\nTo run a backtest, you need:")
+            print("1. Historical data: python main.py collect-data")
+            print("2. Sufficient games per player (15+ games)")
+            print("3. Data spanning multiple months")
+
 
 def main():
     """Main entry point."""
@@ -247,7 +279,7 @@ def main():
     
     parser.add_argument('command', choices=[
         'collect-data', 'train', 'predict', 'update-results', 
-        'accuracy', 'retrain', 'full-pipeline'
+        'accuracy', 'retrain', 'full-pipeline', 'backtest'
     ], help='Command to execute')
     
     parser.add_argument('--players-limit', type=int, default=50,
@@ -255,6 +287,9 @@ def main():
     
     parser.add_argument('--days-back', type=int, default=1,
                        help='Days back to update results for (default: 1)')
+    
+    parser.add_argument('--season', default='2023-24',
+                       help='NBA season for backtest (default: 2023-24)')
     
     parser.add_argument('--db-path', default='data/nba_data.db',
                        help='Path to SQLite database (default: data/nba_data.db)')
@@ -306,6 +341,9 @@ def main():
             
             # Show accuracy if we have historical predictions
             app.show_accuracy()
+            
+        elif args.command == 'backtest':
+            app.run_backtest(args.season)
             
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
