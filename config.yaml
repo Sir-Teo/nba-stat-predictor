@@ -1,0 +1,81 @@
+# NBA Stat Predictor Configuration
+# This file contains all configurable parameters for easy customization
+
+# Database settings
+database:
+  path: "data/nba_data.db"
+  backup_enabled: true
+  backup_retention_days: 30
+
+# Data collection settings
+data_collection:
+  default_players_limit: 50
+  max_players_limit: 200
+  seasons_to_collect: ["2023-24", "2022-23", "2021-22", "2020-21"]
+  min_games_per_player: 15
+  api_delay_seconds: 0.6
+  max_retries: 3
+
+# Model training settings
+models:
+  algorithms:
+    - random_forest
+    # - xgboost  # Can be enabled for more advanced modeling
+    # - neural_network
+  
+  random_forest:
+    n_estimators: 150
+    max_depth: 12
+    min_samples_split: 5
+    min_samples_leaf: 2
+    random_state: 42
+    
+  validation:
+    test_size: 0.2
+    cv_folds: 5
+    
+  retraining:
+    performance_threshold: 0.15  # Retrain if MAE increases by 15%
+    min_days_between_retraining: 7
+    
+# Prediction settings
+predictions:
+  stats_to_predict: ["pts", "reb", "ast", "stl", "blk"]
+  confidence_threshold: 0.6
+  max_predictions_per_stat: 20
+  
+# Feature engineering settings
+features:
+  rolling_windows: [3, 5, 10]
+  trend_periods: [5, 10]
+  home_away_splits: true
+  rest_analysis: true
+  consistency_metrics: true
+  opponent_strength: false  # Future feature
+  
+# Logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file_enabled: true
+  file_path: "logs/nba_predictor.log"
+  max_file_size_mb: 10
+  backup_count: 5
+  
+# Performance monitoring
+monitoring:
+  accuracy_window_days: 14
+  performance_alerts: true
+  email_notifications: false  # Future feature
+  
+# API settings (for future web interface)
+api:
+  enabled: false
+  host: "localhost"
+  port: 8000
+  
+# Visualization settings
+visualization:
+  save_plots: true
+  plot_directory: "plots"
+  figure_size: [12, 8]
+  style: "seaborn-v0_8" 

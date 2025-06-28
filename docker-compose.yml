@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  nba-predictor:
+    build: .
+    container_name: nba-stat-predictor
+    volumes:
+      # Persist data, models, and logs
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./plots:/app/plots
+      - ./backups:/app/backups
+      # Mount config file
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONPATH=/app/src
+      - NBA_PREDICTOR_DB_PATH=/app/data/nba_data.db
+    restart: unless-stopped
+    
+    # Override default command based on what you want to run
+    # Uncomment one of these or use docker-compose run for custom commands
+    
+    # For daily predictions (default)
+    command: ["python", "main.py", "predict"]
+    
+    # For full pipeline
+    # command: ["python", "main.py", "full-pipeline"]
+    
+    # For data collection
+    # command: ["python", "main.py", "collect-data", "--players-limit", "100"]
+    
+    # For training only
+    # command: ["python", "main.py", "train"]
+    
+    # For checking accuracy
+    # command: ["python", "main.py", "accuracy"]
+    
+    # For backtest
+    # command: ["python", "main.py", "backtest", "--season", "2023-24"]
+
+  # Optional: Schedule daily predictions with cron-like functionality
+  scheduler:
+    build: .
+    container_name: nba-predictor-scheduler
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./plots:/app/plots
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONPATH=/app/src
+      - NBA_PREDICTOR_DB_PATH=/app/data/nba_data.db
+    restart: unless-stopped
+    # Run scheduler (you would need to implement this)
+    command: ["python", "-c", "import time; import subprocess; [time.sleep(3600) or subprocess.run(['python', 'main.py', 'predict']) for _ in iter(int, 1)]"]
+    profiles: ["scheduler"]  # Only run with: docker-compose --profile scheduler up
+
+# Network for communication (if needed in future)
+networks:
+  default:
+    name: nba-predictor-network
+
+# Volumes for persistence
+volumes:
+  nba_data:
+    driver: local
+  nba_models:
+    driver: local
+  nba_logs:
+    driver: local 
