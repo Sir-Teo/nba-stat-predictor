@@ -46,25 +46,60 @@ class NBAStatPredictorApp:
         
     def collect_data(self, players_limit: int = 50):
         """Collect historical NBA data for training."""
-        logger.info("Starting data collection...")
+        logger.info("Starting comprehensive data collection...")
         
-        # Get all NBA players
-        all_players_df = self.data_collector.get_all_players()
+        # Get star players for better training data
+        try:
+            star_players = self.data_collector.get_team_leaders()
+            if players_limit > len(star_players):
+                # Add more popular players if we need more
+                additional_players = self.data_collector.get_popular_players(players_limit - len(star_players))
+                all_players = star_players + additional_players
+            else:
+                all_players = star_players[:players_limit]
+            
+            logger.info(f"Selected {len(all_players)} players for data collection")
+            
+        except Exception as e:
+            logger.warning(f"Could not get star players, using fallback method: {e}")
+            # Fallback to original method
+            all_players_df = self.data_collector.get_all_players()
+            if all_players_df.empty:
+                logger.error("Could not fetch NBA players data")
+                return
+            all_players = all_players_df.head(players_limit)['id'].tolist()
         
-        if all_players_df.empty:
-            logger.error("Could not fetch NBA players data")
-            return
+        logger.info(f"Collecting data for {len(all_players)} players across 4 seasons...")
         
-        # Get top players by ID (you might want to implement smarter selection)
-        popular_players = all_players_df.head(players_limit)['id'].tolist()
-        
-        logger.info(f"Collecting data for {len(popular_players)} players...")
-        
-        # Collect historical data
+        # Collect historical data across multiple seasons
         self.data_collector.collect_historical_data(
-            players_list=popular_players,
-            seasons=["2023-24", "2022-23"]
+            players_list=all_players,
+            seasons=["2023-24", "2022-23", "2021-22", "2020-21"]
         )
+        
+        # Show collection summary
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM player_games")
+        total_games = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(DISTINCT player_id) FROM player_games")
+        unique_players = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT MIN(game_date), MAX(game_date) FROM player_games")
+        date_range = cursor.fetchone()
+        
+        conn.close()
+        
+        logger.info("="*60)
+        logger.info("DATA COLLECTION SUMMARY")
+        logger.info("="*60)
+        logger.info(f"Total games collected: {total_games}")
+        logger.info(f"Unique players: {unique_players}")
+        logger.info(f"Date range: {date_range[0]} to {date_range[1]}")
+        logger.info("="*60)
         
         logger.info("Data collection completed!")
     
@@ -252,8 +287,8 @@ class NBAStatPredictorApp:
             # Run the backtest
             results = backtester.run_season_backtest(
                 season=season,
-                train_months=3,
-                min_games_per_player=10  # Reduced from 15 for demo
+                train_months=2,  # Reduced for more test data
+                min_games_per_player=5  # Reduced for broader player coverage
             )
             
             # Print results
@@ -331,7 +366,7 @@ def main():
             
             if game_count < 100:
                 logger.info("Insufficient data, collecting...")
-                app.collect_data(30)  # Smaller sample for demo
+                app.collect_data(50)  # Increased for better coverage
             
             # Train models
             app.train_models()
