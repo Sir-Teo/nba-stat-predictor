@@ -3,10 +3,12 @@
 A comprehensive machine learning system that predicts NBA player statistics for tonight's games and continuously improves its accuracy through self-learning mechanisms.
 
 ## ✨ Recent Updates
+- **🎯 Interactive Dashboard** - New user-controlled interface for data updates and custom predictions
+- **🔄 User-Controlled Data Updates** - Choose when to fetch latest NBA data (no more automatic updates)
+- **🎲 Custom Player vs Team Predictions** - Predict any player's stats against any team
+- **🧠 Enhanced Feature Engineering** - Opponent-specific features and head-to-head analysis
 - **Reorganized project structure** with dedicated `docs/` and `examples/` directories
 - **Updated dependencies** to latest stable versions (December 2024)
-- **Enhanced documentation** with comprehensive guides and tutorials
-- **Improved examples** with step-by-step quick start guide
 
 ## 📁 Project Structure
 
@@ -56,16 +58,26 @@ cd nba-stat-predictor
 pip install -r requirements.txt
 ```
 
-### 2. Run the Full Pipeline
+### 2. Interactive Dashboard (Recommended)
 
 ```bash
-# This will collect data, train models, and make predictions for tonight
-python main.py full-pipeline
+# Launch the interactive dashboard for full control
+python run_interactive.py
 ```
 
-### 3. Make Predictions for Tonight's Games
+Features:
+- **🔄 Update Data**: Choose when to fetch latest NBA data
+- **🎯 Custom Predictions**: Predict any player vs any team (e.g., "LeBron James" vs "Lakers")
+- **🧠 Model Training**: Train/retrain prediction models
+- **📊 System Status**: Monitor data freshness and model availability
+
+### 3. Command Line Interface
 
 ```bash
+# Run the full pipeline (collect data, train models, predict)
+python main.py full-pipeline
+
+# Make predictions for tonight's games
 python main.py predict
 ```
 

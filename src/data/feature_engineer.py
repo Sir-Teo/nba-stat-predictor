@@ -23,7 +23,7 @@ class FeatureEngineer:
         self.label_encoders = {}
         
     def create_features_for_player(self, player_id: int, target_date: str, 
-                                  lookback_games: int = 15) -> pd.DataFrame:
+                                  lookback_games: int = 15, opponent_team_id: int = None) -> pd.DataFrame:
         """Create comprehensive features for a player for prediction."""
         conn = sqlite3.connect(self.db_path)
         
@@ -36,9 +36,9 @@ class FeatureEngineer:
         """
         
         df = pd.read_sql_query(query, conn, params=(player_id, target_date, lookback_games))
-        conn.close()
         
         if df.empty:
+            conn.close()
             return pd.DataFrame()
         
         features = {}
@@ -68,10 +68,18 @@ class FeatureEngineer:
         # Opponent-based features (if available)
         features.update(self._create_opponent_features(df))
         
+        # Opponent-specific features if team ID provided
+        if opponent_team_id is not None:
+            features.update(self._create_opponent_specific_features(player_id, opponent_team_id, target_date, conn))
+        
+        conn.close()
+        
         # Convert to DataFrame
         features_df = pd.DataFrame([features])
         features_df['player_id'] = player_id
         features_df['target_date'] = target_date
+        if opponent_team_id is not None:
+            features_df['opponent_team_id'] = opponent_team_id
         
         return features_df
     
@@ -519,5 +527,107 @@ class FeatureEngineer:
             if len(rest_days) > 0:
                 features['avg_rest_days'] = rest_days.mean()
                 features['rest_consistency'] = 1 / (rest_days.std() + 1)  # Higher = more consistent
+        
+        return features
+    
+    def _create_opponent_specific_features(self, player_id: int, opponent_team_id: int, 
+                                         target_date: str, conn: sqlite3.Connection) -> Dict:
+        """Create features specific to matchup against opponent team."""
+        features = {}
+        
+        try:
+            # Get historical performance against this opponent
+            h2h_query = """
+                SELECT pts, reb, ast, stl, blk, min, game_date, wl
+                FROM player_games 
+                WHERE player_id = ? AND game_date < ?
+                AND (matchup LIKE ? OR matchup LIKE ?)
+                ORDER BY game_date DESC
+                LIMIT 10
+            """
+            
+            # Create matchup patterns for both home and away games
+            home_pattern = f"%vs. {opponent_team_id}%"
+            away_pattern = f"%@ {opponent_team_id}%"
+            
+            h2h_df = pd.read_sql_query(h2h_query, conn, 
+                                     params=(player_id, target_date, home_pattern, away_pattern))
+            
+            if not h2h_df.empty:
+                # Head-to-head averages
+                features['h2h_pts_avg'] = h2h_df['pts'].mean()
+                features['h2h_reb_avg'] = h2h_df['reb'].mean()
+                features['h2h_ast_avg'] = h2h_df['ast'].mean()
+                features['h2h_stl_avg'] = h2h_df['stl'].mean()
+                features['h2h_blk_avg'] = h2h_df['blk'].mean()
+                features['h2h_min_avg'] = h2h_df['min'].mean()
+                features['h2h_games_count'] = len(h2h_df)
+                
+                # Win rate against opponent
+                features['h2h_win_rate'] = (h2h_df['wl'] == 'W').mean()
+                
+                # Recent performance vs opponent (last 3 games)
+                recent_h2h = h2h_df.head(3)
+                if len(recent_h2h) > 0:
+                    features['h2h_recent_pts_avg'] = recent_h2h['pts'].mean()
+                    features['h2h_recent_games'] = len(recent_h2h)
+                else:
+                    features['h2h_recent_pts_avg'] = 0
+                    features['h2h_recent_games'] = 0
+                
+                # Performance trend vs opponent
+                if len(h2h_df) >= 3:
+                    features['h2h_pts_trend'] = self._calculate_trend(h2h_df['pts'].values)
+                else:
+                    features['h2h_pts_trend'] = 0
+                    
+            else:
+                # No historical data against this opponent
+                features['h2h_pts_avg'] = 0
+                features['h2h_reb_avg'] = 0
+                features['h2h_ast_avg'] = 0
+                features['h2h_stl_avg'] = 0
+                features['h2h_blk_avg'] = 0
+                features['h2h_min_avg'] = 0
+                features['h2h_games_count'] = 0
+                features['h2h_win_rate'] = 0
+                features['h2h_recent_pts_avg'] = 0
+                features['h2h_recent_games'] = 0
+                features['h2h_pts_trend'] = 0
+            
+            # Get opponent team's defensive stats (if available)
+            opponent_defense_query = """
+                SELECT AVG(pts) as avg_pts_allowed, COUNT(*) as games_played
+                FROM player_games 
+                WHERE game_date < ? AND game_date >= date(?, '-30 days')
+                AND (matchup LIKE ? OR matchup LIKE ?)
+            """
+            
+            # Patterns to find games against this opponent team
+            vs_opponent_home = f"%vs. {opponent_team_id}%"
+            vs_opponent_away = f"%@ {opponent_team_id}%"
+            
+            try:
+                opponent_defense = pd.read_sql_query(opponent_defense_query, conn,
+                                                   params=(target_date, target_date, 
+                                                          vs_opponent_home, vs_opponent_away))
+                
+                if not opponent_defense.empty and opponent_defense.iloc[0]['games_played'] > 0:
+                    features['opponent_avg_pts_allowed'] = opponent_defense.iloc[0]['avg_pts_allowed']
+                else:
+                    features['opponent_avg_pts_allowed'] = 110  # NBA average
+            except:
+                features['opponent_avg_pts_allowed'] = 110  # NBA average
+            
+        except Exception as e:
+            logger.error(f"Error creating opponent-specific features: {e}")
+            # Set default values if error occurs
+            features.update({
+                'h2h_pts_avg': 0, 'h2h_reb_avg': 0, 'h2h_ast_avg': 0,
+                'h2h_stl_avg': 0, 'h2h_blk_avg': 0, 'h2h_min_avg': 0,
+                'h2h_games_count': 0, 'h2h_win_rate': 0,
+                'h2h_recent_pts_avg': 0, 'h2h_recent_games': 0,
+                'h2h_pts_trend': 0, 'opponent_avg_pts_allowed': 110
+            })
         
         return features 
