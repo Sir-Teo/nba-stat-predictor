@@ -104,7 +104,7 @@ class NBAStatPredictorApp:
         
         logger.info("Data collection completed!")
     
-    def train_models(self):
+    def train_models(self, fast_mode: bool = False):
         """Train prediction models."""
         logger.info("Starting model training...")
         
@@ -116,14 +116,17 @@ class NBAStatPredictorApp:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get players with at least 20 games
-        cursor.execute("""
+        # Get players with at least 15-20 games (reduced for fast mode)
+        min_games = 15 if fast_mode else 20
+        limit_players = 50 if fast_mode else 100
+        
+        cursor.execute(f"""
             SELECT player_id, COUNT(*) as game_count
             FROM player_games
             GROUP BY player_id
-            HAVING game_count >= 20
+            HAVING game_count >= {min_games}
             ORDER BY game_count DESC
-            LIMIT 100
+            LIMIT {limit_players}
         """)
         
         players_with_data = [row[0] for row in cursor.fetchall()]
@@ -135,16 +138,22 @@ class NBAStatPredictorApp:
         
         logger.info(f"Training models with data from {len(players_with_data)} players")
         
-        # Create training dataset
-        start_date = "2022-10-01"
-        end_date = "2024-01-01"
+        # Create training dataset with reduced complexity for fast mode
+        if fast_mode:
+            start_date = "2023-01-01"  # Reduced date range
+            end_date = "2024-01-01"
+        else:
+            start_date = "2022-10-01"
+            end_date = "2024-01-01"
         
         print("📊 Creating training dataset...")
         training_data = self.feature_engineer.create_training_dataset(
             players_list=players_with_data,
             start_date=start_date,
             end_date=end_date,
-            target_stats=['pts', 'reb', 'ast', 'stl', 'blk']
+            target_stats=['pts', 'reb', 'ast', 'stl', 'blk'],
+            include_h2h_features=not fast_mode,        # Disabled in fast mode
+            include_advanced_features=not fast_mode    # Disabled in fast mode
         )
         
         if training_data.empty:
@@ -156,19 +165,33 @@ class NBAStatPredictorApp:
         # Train models for each stat
         stat_types = ['pts', 'reb', 'ast', 'stl', 'blk']
         
-        print("\n🏀 Training standard models:")
+        mode_desc = "fast" if fast_mode else "standard"
+        print(f"\n🏀 Training {mode_desc} models:")
+        
         with tqdm(stat_types, desc="Training Models", ncols=80,
                   bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
             for stat_type in pbar:
                 try:
                     pbar.set_description(f"Training {stat_type.upper()}")
-                    metrics = self.model_manager.train_model(stat_type, training_data)
+                    
+                    # Use faster model type and disable hyperparameter optimization in fast mode
+                    model_type = "random_forest" if fast_mode else "ensemble"
+                    optimize_hyperparams = not fast_mode
+                    
+                    metrics = self.model_manager.train_model(
+                        stat_type, training_data,
+                        model_type=model_type,
+                        optimize_hyperparams=optimize_hyperparams
+                    )
                     mae = metrics.get('test_mae', metrics.get('val_mae', 0))
                     pbar.write(f"✅ {stat_type.upper()} model trained - MAE: {mae:.2f}")
                 except Exception as e:
                     pbar.write(f"❌ Error training {stat_type} model: {e}")
         
-        print("\n✅ Model training completed!")
+        mode_msg = "⚡ Fast model training completed!" if fast_mode else "✅ Model training completed!"
+        print(f"\n{mode_msg}")
+        if fast_mode:
+            print("💡 Fast models use simplified features but train 3x faster.")
     
     def predict_tonight(self):
         """Make predictions for tonight's games."""

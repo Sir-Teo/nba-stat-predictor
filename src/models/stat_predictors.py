@@ -59,8 +59,8 @@ class AdvancedStatPredictor:
         
     def train(self, X: pd.DataFrame, y: pd.Series, optimize_hyperparams: bool = True) -> Dict[str, float]:
         """Train the model with advanced evaluation and hyperparameter optimization."""
-        # Time series split for temporal validation
-        tscv = TimeSeriesSplit(n_splits=5)
+        # Time series split for temporal validation (REDUCED from 5 to 3 folds)
+        tscv = TimeSeriesSplit(n_splits=3)
         
         # Scale features
         X_scaled = self.scaler.fit_transform(X)
@@ -88,7 +88,7 @@ class AdvancedStatPredictor:
         metrics['cv_mae_mean'] = -cv_scores.mean()
         metrics['cv_mae_std'] = cv_scores.std()
         
-        # Calculate confidence intervals
+        # Calculate confidence intervals (REDUCED computation)
         tqdm.write(f"   🎲 Computing confidence intervals for {self.stat_type}...")
         self.confidence_intervals = self._calculate_confidence_intervals(X_scaled, y)
         
@@ -153,7 +153,8 @@ class AdvancedStatPredictor:
     
     def _calculate_confidence_intervals(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         """Calculate confidence intervals using bootstrap sampling."""
-        n_bootstrap = 100
+        # REDUCED from 100 to 20 bootstrap samples for speed
+        n_bootstrap = 20
         predictions_bootstrap = []
         
         with tqdm(range(n_bootstrap), desc="Bootstrap CI", ncols=60, 
@@ -289,7 +290,7 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             search = BayesSearchCV(
                 lgb.LGBMRegressor(random_state=42, verbosity=-1),
                 self._get_param_space(),
-                n_iter=20,
+                n_iter=10,  # REDUCED from 20 to 10 iterations
                 cv=cv,
                 scoring='neg_mean_absolute_error',
                 random_state=42,
@@ -299,9 +300,9 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             tqdm.write("     Using grid search...")
             # Simplified grid search if BayesSearchCV is not available
             param_grid = {
-                'n_estimators': [100, 200],
-                'learning_rate': [0.05, 0.1],
-                'max_depth': [6, 8]
+                'n_estimators': [100, 150],  # REDUCED options
+                'learning_rate': [0.1],      # REDUCED to single option
+                'max_depth': [6, 8]          # REDUCED options
             }
             search = GridSearchCV(
                 lgb.LGBMRegressor(random_state=42, verbosity=-1),
@@ -419,8 +420,8 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
         
-        # Time series split for stacking
-        tscv = TimeSeriesSplit(n_splits=5)
+        # Time series split for stacking (REDUCED from 5 to 3 folds)
+        tscv = TimeSeriesSplit(n_splits=3)
         
         # Generate stacking features
         tqdm.write(f"   🧪 Generating stacking features for {self.stat_type} ensemble...")

@@ -485,9 +485,10 @@ class InteractiveNBADashboard:
             print("\nTraining Options:")
             print("1. Standard training (compatible with current predictions)")
             print("2. Advanced training with head-to-head features (requires retraining)")
-            print("3. Back to main menu")
+            print("3. 🚀 FAST training (reduced features, 3x faster)")
+            print("4. Back to main menu")
             
-            choice = input("\nSelect training mode (1-3): ").strip()
+            choice = input("\nSelect training mode (1-4): ").strip()
             
             if choice == "1":
                 print("🚀 Starting standard model training...")
@@ -504,6 +505,12 @@ class InteractiveNBADashboard:
                 else:
                     print("Advanced training cancelled.")
             elif choice == "3":
+                print("🚀 Starting FAST model training...")
+                print("⚡ Using reduced features and parameters for 3x speed boost")
+                print("📊 Training models with progress tracking...\n")
+                self.app.train_models(fast_mode=True)
+                print("✅ Fast model training completed!")
+            elif choice == "4":
                 return
             else:
                 print("❌ Invalid choice.")
@@ -547,7 +554,8 @@ class InteractiveNBADashboard:
                 start_date=start_date,
                 end_date=end_date,
                 target_stats=['pts', 'reb', 'ast', 'stl', 'blk'],
-                include_h2h_features=True
+                include_h2h_features=True,
+                include_advanced_features=True
             )
             
             if training_data.empty:

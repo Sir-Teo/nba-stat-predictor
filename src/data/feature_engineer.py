@@ -27,7 +27,7 @@ class AdvancedFeatureEngineer:
         self.pace_adjustments = {}
         
     def create_features_for_player(self, player_id: int, target_date: str, 
-                                  lookback_games: int = 20, opponent_team_id: int = None, 
+                                  lookback_games: int = 15, opponent_team_id: int = None,
                                   include_h2h_features: bool = True,
                                   include_advanced_features: bool = True) -> pd.DataFrame:
         """Create comprehensive advanced features for a player for prediction."""
@@ -52,8 +52,8 @@ class AdvancedFeatureEngineer:
         
         features = {}
         
-        # Core rolling statistics with multiple windows
-        features.update(self._create_rolling_stats(df, windows=[3, 5, 10, 15, 20]))
+        # Core rolling statistics with REDUCED windows for speed
+        features.update(self._create_rolling_stats(df, windows=[3, 5, 10]))  # REDUCED from [3, 5, 10, 15, 20]
         
         # Advanced form and momentum features
         features.update(self._create_advanced_form_features(df))
@@ -66,23 +66,16 @@ class AdvancedFeatureEngineer:
         
         # Rest and fatigue analysis
         features.update(self._create_rest_features(df))
-        features.update(self._create_fatigue_features(df))
         
         # Consistency and reliability metrics
         features.update(self._create_consistency_features(df))
         
-        # Player role and usage features
+        # Usage features
         features.update(self._create_usage_features(df))
         
-        # Performance vs different opponent types
-        features.update(self._create_opponent_type_features(df, conn))
-        
-        # Advanced matchup features
+        # SIMPLIFIED opponent type features
         if include_advanced_features:
-            features.update(self._create_pace_adjusted_features(df, conn))
-            features.update(self._create_clutch_performance_features(df))
-            features.update(self._create_momentum_shift_features(df))
-            features.update(self._create_game_context_features(df))
+            features.update(self._create_opponent_type_features(df, conn))
         
         # Team strength and opponent-specific features
         if opponent_team_id is not None and include_h2h_features:
@@ -101,7 +94,7 @@ class AdvancedFeatureEngineer:
         
         return features_df
     
-    def _create_rolling_stats(self, df: pd.DataFrame, windows: List[int] = [3, 5, 10, 15, 20]) -> Dict:
+    def _create_rolling_stats(self, df: pd.DataFrame, windows: List[int] = [3, 5, 10]) -> Dict:
         """Create comprehensive rolling statistics for different time windows."""
         features = {}
         
@@ -295,81 +288,6 @@ class AdvancedFeatureEngineer:
         
         return features
     
-    def _create_pace_adjusted_features(self, df: pd.DataFrame, conn: sqlite3.Connection) -> Dict:
-        """Create pace-adjusted performance features."""
-        features = {}
-        
-        # Simplified pace adjustment - would need team pace data for full implementation
-        avg_min = df['min'].mean()
-        if avg_min > 0:
-            # Estimate possessions based on minutes played
-            est_possessions = avg_min * 1.2  # Rough estimate
-            
-            for stat in ['pts', 'reb', 'ast']:
-                if stat in df.columns:
-                    features[f'{stat}_per_100_poss'] = (df[stat].mean() / est_possessions) * 100
-        
-        return features
-    
-    def _create_clutch_performance_features(self, df: pd.DataFrame) -> Dict:
-        """Create features for clutch/high-pressure performance."""
-        features = {}
-        
-        # This would require play-by-play data for true clutch stats
-        # Using close games as proxy for clutch situations
-        if 'plus_minus' in df.columns:
-            close_games = df[abs(df['plus_minus']) <= 5]  # Games decided by 5 or less
-            if len(close_games) > 0:
-                features['clutch_games_count'] = len(close_games)
-                features['clutch_pts_avg'] = close_games['pts'].mean()
-                features['clutch_performance'] = close_games['pts'].mean() - df['pts'].mean()
-        
-        return features
-    
-    def _create_momentum_shift_features(self, df: pd.DataFrame) -> Dict:
-        """Create features capturing momentum and performance shifts."""
-        features = {}
-        
-        if len(df) < 5:
-            return features
-        
-        # Performance acceleration/deceleration
-        for stat in ['pts', 'reb', 'ast']:
-            if stat in df.columns:
-                values = df.sort_values('game_date')[stat].values
-                
-                # Second derivative (acceleration)
-                if len(values) >= 3:
-                    first_diff = np.diff(values)
-                    second_diff = np.diff(first_diff)
-                    features[f'{stat}_acceleration'] = np.mean(second_diff[-3:])  # Recent acceleration
-                
-                # Momentum score (weighted recent performance)
-                weights = np.exp(np.linspace(0, 1, len(values)))
-                features[f'{stat}_momentum_score'] = np.average(values, weights=weights)
-        
-        return features
-    
-    def _create_game_context_features(self, df: pd.DataFrame) -> Dict:
-        """Create features based on broader game context."""
-        features = {}
-        
-        # Performance in different game outcomes
-        if 'wl' in df.columns and 'plus_minus' in df.columns:
-            # Blowout vs close game performance
-            blowouts = df[abs(df['plus_minus']) >= 20]
-            close_games = df[abs(df['plus_minus']) <= 5]
-            
-            if len(blowouts) > 0:
-                features['blowout_pts_avg'] = blowouts['pts'].mean()
-                features['blowout_games_count'] = len(blowouts)
-            
-            if len(close_games) > 0:
-                features['close_game_pts_avg'] = close_games['pts'].mean()
-                features['close_games_count'] = len(close_games)
-        
-        return features
-    
     def _create_team_strength_features(self, opponent_team_id: int, target_date: str, 
                                      conn: sqlite3.Connection) -> Dict:
         """Create features based on opponent team strength."""
@@ -516,56 +434,6 @@ class AdvancedFeatureEngineer:
         
         # Home/away differential
         features['home_away_pts_diff'] = features['home_pts_avg'] - features['away_pts_avg']
-        
-        return features
-    
-    def _create_fatigue_features(self, df: pd.DataFrame) -> Dict:
-        """Create advanced fatigue and load management features."""
-        features = {}
-        
-        if len(df) < 3:
-            return features
-        
-        # Sort by date
-        df_sorted = df.sort_values('game_date').reset_index(drop=True)
-        
-        # Convert game_date to datetime for calculations
-        df_sorted['game_date'] = pd.to_datetime(df_sorted['game_date'])
-        
-        # Advanced rest patterns
-        df_sorted['days_rest'] = df_sorted['game_date'].diff().dt.days
-        
-        if 'min' in df_sorted.columns:
-            minutes = df_sorted['min'].values
-            
-            # Average minutes over different periods
-            features['avg_min_season'] = np.mean(minutes)
-            
-            if len(minutes) >= 10:
-                features['avg_min_last_10'] = np.mean(minutes[-10:])
-                
-            if len(minutes) >= 5:
-                features['avg_min_last_5'] = np.mean(minutes[-5:])
-            
-            # Minutes load trend
-            if len(minutes) >= 10:
-                features['min_trend'] = self._calculate_trend(minutes[-10:])
-            
-            # Heavy minute games (>35 minutes)
-            heavy_games = (minutes > 35).sum() if len(minutes) > 0 else 0
-            features['heavy_min_games_pct'] = heavy_games / len(minutes) if len(minutes) > 0 else 0
-        
-        # Back-to-back patterns
-        if 'days_rest' in df_sorted.columns:
-            b2b_games = (df_sorted['days_rest'] == 1).sum()
-            total_games = len(df_sorted)
-            features['b2b_games_pct'] = b2b_games / total_games if total_games > 0 else 0
-            
-            # Rest distribution
-            rest_days = df_sorted['days_rest'].dropna()
-            if len(rest_days) > 0:
-                features['avg_rest_days'] = rest_days.mean()
-                features['rest_consistency'] = 1 / (rest_days.std() + 1)  # Higher = more consistent
         
         return features
     
@@ -780,10 +648,10 @@ class AdvancedFeatureEngineer:
                                 opponent_team_id = abs(hash(opponent_name)) % 1000000
                         
                         try:
-                            # Create advanced features
+                            # Create advanced features (REDUCED lookback games)
                             features_df = self.create_features_for_player(
                                 player_id, target_date, 
-                                lookback_games=20,
+                                lookback_games=15,  # REDUCED from 20 to 15
                                 opponent_team_id=opponent_team_id,
                                 include_h2h_features=include_h2h_features,
                                 include_advanced_features=include_advanced_features
