@@ -96,6 +96,59 @@ class NBADataCollector:
             )
         """)
         
+        # Create basic teams table for advanced features
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS teams (
+                team_id INTEGER PRIMARY KEY,
+                team_name TEXT,
+                team_abbreviation TEXT,
+                conference TEXT,
+                division TEXT
+            )
+        """)
+        
+        # Insert basic team data if table is empty
+        cursor.execute("SELECT COUNT(*) FROM teams")
+        if cursor.fetchone()[0] == 0:
+            # Insert some basic NBA teams (simplified for demo)
+            teams_data = [
+                (1610612737, 'Atlanta Hawks', 'ATL', 'Eastern', 'Southeast'),
+                (1610612738, 'Boston Celtics', 'BOS', 'Eastern', 'Atlantic'),
+                (1610612739, 'Cleveland Cavaliers', 'CLE', 'Eastern', 'Central'),
+                (1610612740, 'New Orleans Pelicans', 'NOP', 'Western', 'Southwest'),
+                (1610612741, 'Chicago Bulls', 'CHI', 'Eastern', 'Central'),
+                (1610612742, 'Dallas Mavericks', 'DAL', 'Western', 'Southwest'),
+                (1610612743, 'Denver Nuggets', 'DEN', 'Western', 'Northwest'),
+                (1610612744, 'Golden State Warriors', 'GSW', 'Western', 'Pacific'),
+                (1610612745, 'Houston Rockets', 'HOU', 'Western', 'Southwest'),
+                (1610612746, 'LA Clippers', 'LAC', 'Western', 'Pacific'),
+                (1610612747, 'Los Angeles Lakers', 'LAL', 'Western', 'Pacific'),
+                (1610612748, 'Miami Heat', 'MIA', 'Eastern', 'Southeast'),
+                (1610612749, 'Milwaukee Bucks', 'MIL', 'Eastern', 'Central'),
+                (1610612750, 'Minnesota Timberwolves', 'MIN', 'Western', 'Northwest'),
+                (1610612751, 'Brooklyn Nets', 'BKN', 'Eastern', 'Atlantic'),
+                (1610612752, 'New York Knicks', 'NYK', 'Eastern', 'Atlantic'),
+                (1610612753, 'Orlando Magic', 'ORL', 'Eastern', 'Southeast'),
+                (1610612754, 'Indiana Pacers', 'IND', 'Eastern', 'Central'),
+                (1610612755, 'Philadelphia 76ers', 'PHI', 'Eastern', 'Atlantic'),
+                (1610612756, 'Phoenix Suns', 'PHX', 'Western', 'Pacific'),
+                (1610612757, 'Portland Trail Blazers', 'POR', 'Western', 'Northwest'),
+                (1610612758, 'Sacramento Kings', 'SAC', 'Western', 'Pacific'),
+                (1610612759, 'San Antonio Spurs', 'SAS', 'Western', 'Southwest'),
+                (1610612760, 'Oklahoma City Thunder', 'OKC', 'Western', 'Northwest'),
+                (1610612761, 'Toronto Raptors', 'TOR', 'Eastern', 'Atlantic'),
+                (1610612762, 'Utah Jazz', 'UTA', 'Western', 'Northwest'),
+                (1610612763, 'Memphis Grizzlies', 'MEM', 'Western', 'Southwest'),
+                (1610612764, 'Washington Wizards', 'WAS', 'Eastern', 'Southeast'),
+                (1610612765, 'Detroit Pistons', 'DET', 'Eastern', 'Central'),
+                (1610612766, 'Charlotte Hornets', 'CHA', 'Eastern', 'Southeast')
+            ]
+            
+            cursor.executemany(
+                "INSERT OR IGNORE INTO teams (team_id, team_name, team_abbreviation, conference, division) VALUES (?, ?, ?, ?, ?)",
+                teams_data
+            )
+        
         conn.commit()
         conn.close()
         
@@ -203,7 +256,40 @@ class NBADataCollector:
         
         # Convert game_date to ISO format (YYYY-MM-DD)
         if 'game_date' in processed_df.columns:
-            processed_df['game_date'] = pd.to_datetime(processed_df['game_date']).dt.strftime('%Y-%m-%d')
+            try:
+                # Try common NBA API format first (abbreviated month)
+                processed_df['game_date'] = pd.to_datetime(processed_df['game_date'], format='%b %d, %Y').dt.strftime('%Y-%m-%d')
+            except Exception:
+                try:
+                    # Fallback: try full month name format
+                    processed_df['game_date'] = pd.to_datetime(processed_df['game_date'], format='%B %d, %Y').dt.strftime('%Y-%m-%d')
+                except Exception:
+                    try:
+                        # Try with errors='coerce' to handle mixed formats
+                        processed_df['game_date'] = pd.to_datetime(processed_df['game_date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                    except Exception:
+                        try:
+                            # Final fallback: infer format
+                            processed_df['game_date'] = pd.to_datetime(processed_df['game_date'], infer_datetime_format=True).dt.strftime('%Y-%m-%d')
+                        except Exception as e:
+                            logger.warning(f"Could not parse dates for some entries, keeping original format. Error: {e}")
+                            # Convert individually for problematic dates
+                            def safe_convert_date(date_str):
+                                if pd.isna(date_str):
+                                    return date_str
+                                try:
+                                    return pd.to_datetime(date_str, format='%b %d, %Y').strftime('%Y-%m-%d')
+                                except:
+                                    try:
+                                        return pd.to_datetime(date_str, format='%B %d, %Y').strftime('%Y-%m-%d')
+                                    except:
+                                        try:
+                                            return pd.to_datetime(date_str).strftime('%Y-%m-%d')
+                                        except:
+                                            logger.error(f"Failed to parse date: {date_str}")
+                                            return str(date_str)  # Keep original if all fails
+                            
+                            processed_df['game_date'] = processed_df['game_date'].apply(safe_convert_date)
         
         # Add metadata
         processed_df['created_at'] = datetime.now().isoformat()

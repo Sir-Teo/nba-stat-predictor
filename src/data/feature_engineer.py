@@ -1,38 +1,46 @@
 """
-Feature Engineering Module - Creates features for NBA stat prediction models.
+Feature Engineering Module - Creates advanced features for NBA stat prediction models.
 """
 
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import sqlite3
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder, RobustScaler
+from sklearn.cluster import KMeans
 import logging
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
 
-class FeatureEngineer:
-    """Creates and processes features for NBA stat prediction."""
+class AdvancedFeatureEngineer:
+    """Creates and processes advanced features for NBA stat prediction."""
     
     def __init__(self, db_path: str = "data/nba_data.db"):
-        """Initialize the feature engineer."""
+        """Initialize the advanced feature engineer."""
         self.db_path = db_path
-        self.scaler = StandardScaler()
+        self.scaler = RobustScaler()
         self.label_encoders = {}
+        self.team_clusters = {}
+        self.pace_adjustments = {}
         
     def create_features_for_player(self, player_id: int, target_date: str, 
-                                  lookback_games: int = 15, opponent_team_id: int = None, 
-                                  include_h2h_features: bool = False) -> pd.DataFrame:
-        """Create comprehensive features for a player for prediction."""
+                                  lookback_games: int = 20, opponent_team_id: int = None, 
+                                  include_h2h_features: bool = True,
+                                  include_advanced_features: bool = True) -> pd.DataFrame:
+        """Create comprehensive advanced features for a player for prediction."""
         conn = sqlite3.connect(self.db_path)
         
-        # Get player's recent games
+        # Get player's recent games with team info
         query = """
-            SELECT * FROM player_games 
-            WHERE player_id = ? AND game_date < ?
-            ORDER BY game_date DESC
+            SELECT pg.*, COALESCE(t.conference, 'Unknown') as conference, 
+                   COALESCE(t.division, 'Unknown') as division
+            FROM player_games pg
+            LEFT JOIN teams t ON pg.team_id = t.team_id
+            WHERE pg.player_id = ? AND pg.game_date < ?
+            ORDER BY pg.game_date DESC
             LIMIT ?
         """
         
@@ -44,34 +52,43 @@ class FeatureEngineer:
         
         features = {}
         
-        # Basic rolling averages and trends
-        features.update(self._create_rolling_stats(df))
+        # Core rolling statistics with multiple windows
+        features.update(self._create_rolling_stats(df, windows=[3, 5, 10, 15, 20]))
         
-        # Recent form features
-        features.update(self._create_recent_form_features(df))
-        
-        # Advanced momentum and form features
+        # Advanced form and momentum features
         features.update(self._create_advanced_form_features(df))
         
-        # Home/Away splits
+        # Situational and contextual features
+        features.update(self._create_situational_features(df))
+        
+        # Home/Away performance with advanced metrics
         features.update(self._create_home_away_features(df))
         
-        # Rest and fatigue features (enhanced)
+        # Rest and fatigue analysis
         features.update(self._create_rest_features(df))
         features.update(self._create_fatigue_features(df))
         
-        # Consistency features
+        # Consistency and reliability metrics
         features.update(self._create_consistency_features(df))
         
-        # Matchup and opponent features
-        features.update(self._create_matchup_features(df))
+        # Player role and usage features
+        features.update(self._create_usage_features(df))
         
-        # Opponent-based features (if available)
-        features.update(self._create_opponent_features(df))
+        # Performance vs different opponent types
+        features.update(self._create_opponent_type_features(df, conn))
         
-        # Opponent-specific features if team ID provided and h2h features are enabled
+        # Advanced matchup features
+        if include_advanced_features:
+            features.update(self._create_pace_adjusted_features(df, conn))
+            features.update(self._create_clutch_performance_features(df))
+            features.update(self._create_momentum_shift_features(df))
+            features.update(self._create_game_context_features(df))
+        
+        # Team strength and opponent-specific features
         if opponent_team_id is not None and include_h2h_features:
+            features.update(self._create_team_strength_features(opponent_team_id, target_date, conn))
             features.update(self._create_opponent_specific_features(player_id, opponent_team_id, target_date, conn))
+            features.update(self._create_head_to_head_features(player_id, opponent_team_id, target_date, conn))
         
         conn.close()
         
@@ -79,14 +96,13 @@ class FeatureEngineer:
         features_df = pd.DataFrame([features])
         features_df['player_id'] = player_id
         features_df['target_date'] = target_date
-        # Only add opponent_team_id if h2h features are included (to maintain compatibility)
-        if opponent_team_id is not None and include_h2h_features:
+        if opponent_team_id is not None:
             features_df['opponent_team_id'] = opponent_team_id
         
         return features_df
     
-    def _create_rolling_stats(self, df: pd.DataFrame, windows: List[int] = [3, 5, 10, 15]) -> Dict:
-        """Create rolling statistics for different time windows."""
+    def _create_rolling_stats(self, df: pd.DataFrame, windows: List[int] = [3, 5, 10, 15, 20]) -> Dict:
+        """Create comprehensive rolling statistics for different time windows."""
         features = {}
         
         stat_columns = ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fg_pct', 'fg3_pct', 'ft_pct', 'min']
@@ -97,99 +113,323 @@ class FeatureEngineer:
         for window in windows:
             for stat in stat_columns:
                 if stat in df_sorted.columns:
-                    # Rolling mean
-                    rolling_mean = df_sorted[stat].rolling(window=window, min_periods=1).mean().iloc[-1]
-                    features[f'{stat}_avg_{window}g'] = rolling_mean
+                    # Basic rolling statistics
+                    rolling_values = df_sorted[stat].rolling(window=window, min_periods=1)
                     
-                    # Rolling standard deviation
-                    rolling_std = df_sorted[stat].rolling(window=window, min_periods=1).std().iloc[-1]
-                    features[f'{stat}_std_{window}g'] = rolling_std if not pd.isna(rolling_std) else 0
+                    features[f'{stat}_avg_{window}g'] = rolling_values.mean().iloc[-1]
+                    features[f'{stat}_std_{window}g'] = rolling_values.std().iloc[-1] or 0
+                    features[f'{stat}_min_{window}g'] = rolling_values.min().iloc[-1]
+                    features[f'{stat}_max_{window}g'] = rolling_values.max().iloc[-1]
                     
-                    # Rolling trend (slope)
+                    # Advanced rolling statistics
+                    features[f'{stat}_median_{window}g'] = rolling_values.median().iloc[-1]
+                    features[f'{stat}_q25_{window}g'] = rolling_values.quantile(0.25).iloc[-1]
+                    features[f'{stat}_q75_{window}g'] = rolling_values.quantile(0.75).iloc[-1]
+                    features[f'{stat}_iqr_{window}g'] = features[f'{stat}_q75_{window}g'] - features[f'{stat}_q25_{window}g']
+                    
+                    # Coefficient of variation (relative volatility)
+                    mean_val = features[f'{stat}_avg_{window}g']
+                    std_val = features[f'{stat}_std_{window}g']
+                    features[f'{stat}_cv_{window}g'] = (std_val / mean_val) if mean_val > 0 else 0
+                    
+                    # Rolling trend and momentum
                     if len(df_sorted) >= window:
                         recent_values = df_sorted[stat].tail(window).values
-                        trend = self._calculate_trend(recent_values)
-                        features[f'{stat}_trend_{window}g'] = trend
+                        features[f'{stat}_trend_{window}g'] = self._calculate_trend(recent_values)
+                        features[f'{stat}_momentum_{window}g'] = self._calculate_momentum(recent_values)
                     
-                    # Rolling min/max
-                    if window >= 5:  # Only for larger windows
-                        rolling_min = df_sorted[stat].rolling(window=window, min_periods=1).min().iloc[-1]
-                        rolling_max = df_sorted[stat].rolling(window=window, min_periods=1).max().iloc[-1]
-                        features[f'{stat}_min_{window}g'] = rolling_min
-                        features[f'{stat}_max_{window}g'] = rolling_max
-                        
-                        # Rolling range
-                        features[f'{stat}_range_{window}g'] = rolling_max - rolling_min
+                    # Performance vs season average
+                    season_avg = df_sorted[stat].mean()
+                    features[f'{stat}_vs_season_{window}g'] = features[f'{stat}_avg_{window}g'] - season_avg
+                    
+                    # Recent vs historical performance
+                    if window <= 10 and len(df_sorted) > window:
+                        recent_avg = df_sorted[stat].tail(window).mean()
+                        historical_avg = df_sorted[stat].iloc[:-window].mean()
+                        features[f'{stat}_recent_vs_hist_{window}g'] = recent_avg - historical_avg
         
         return features
     
-    def _create_recent_form_features(self, df: pd.DataFrame) -> Dict:
-        """Create features based on recent performance trends."""
+    def _create_advanced_form_features(self, df: pd.DataFrame) -> Dict:
+        """Create advanced performance trends and form features."""
+        features = {}
+        
+        if len(df) < 3:
+            return features
+            
+        df_sorted = df.sort_values('game_date').reset_index(drop=True)
+        
+        # Multi-game performance patterns
+        for stat in ['pts', 'reb', 'ast']:
+            if stat in df_sorted.columns:
+                values = df_sorted[stat].values
+                season_avg = values.mean()
+                
+                # Performance streaks
+                above_avg_streak = self._calculate_current_streak(values, season_avg)
+                features[f'{stat}_above_avg_streak'] = above_avg_streak
+                
+                # Volatility measures
+                features[f'{stat}_volatility_score'] = np.std(values) / (np.mean(values) + 1e-8)
+                
+                # Form curve (recent 5 vs previous 5)
+                if len(values) >= 10:
+                    recent_5 = values[-5:].mean()
+                    prev_5 = values[-10:-5].mean()
+                    features[f'{stat}_form_curve'] = recent_5 - prev_5
+                
+                # Peak performance indicators
+                features[f'{stat}_games_above_peak'] = np.sum(values >= np.percentile(values, 90))
+                features[f'{stat}_consistency_score'] = 1 - (np.std(values) / (np.mean(values) + 1e-8))
+                
+                # Hot/cold streaks
+                hot_games = np.sum(values >= season_avg * 1.2)  # 20% above average
+                cold_games = np.sum(values <= season_avg * 0.8)  # 20% below average
+                features[f'{stat}_hot_games_pct'] = hot_games / len(values)
+                features[f'{stat}_cold_games_pct'] = cold_games / len(values)
+        
+        return features
+    
+    def _create_situational_features(self, df: pd.DataFrame) -> Dict:
+        """Create features based on game situations and contexts."""
         features = {}
         
         if len(df) < 2:
             return features
-            
-        # Sort by date
+        
         df_sorted = df.sort_values('game_date').reset_index(drop=True)
         
-        # Last game performance
-        last_game = df_sorted.iloc[-1]
-        features['last_game_pts'] = last_game.get('pts', 0)
-        features['last_game_reb'] = last_game.get('reb', 0)
-        features['last_game_ast'] = last_game.get('ast', 0)
-        features['last_game_min'] = last_game.get('min', 0)
+        # Day of week effects
+        df_sorted['game_date_dt'] = pd.to_datetime(df_sorted['game_date'])
+        df_sorted['day_of_week'] = df_sorted['game_date_dt'].dt.dayofweek
         
-        # Performance vs season average
-        season_avg_pts = df_sorted['pts'].mean()
-        features['last_game_pts_vs_avg'] = last_game.get('pts', 0) - season_avg_pts
+        # Performance by day of week
+        for day in range(7):
+            day_games = df_sorted[df_sorted['day_of_week'] == day]
+            if len(day_games) > 0:
+                features[f'pts_avg_day_{day}'] = day_games['pts'].mean()
+                features[f'games_on_day_{day}'] = len(day_games)
         
-        # Streak features
-        features.update(self._calculate_streaks(df_sorted))
+        # Back-to-back performance
+        df_sorted['days_rest'] = df_sorted['game_date_dt'].diff().dt.days
+        b2b_games = df_sorted[df_sorted['days_rest'] <= 1]
+        if len(b2b_games) > 0:
+            features['pts_avg_b2b'] = b2b_games['pts'].mean()
+            features['b2b_games_count'] = len(b2b_games)
+            features['b2b_performance_drop'] = df_sorted['pts'].mean() - b2b_games['pts'].mean()
         
-        # Recent high/low performance
-        if len(df_sorted) >= 5:
-            recent_5 = df_sorted.tail(5)
-            features['recent_5_max_pts'] = recent_5['pts'].max()
-            features['recent_5_min_pts'] = recent_5['pts'].min()
-            features['recent_5_games_above_avg'] = (recent_5['pts'] > season_avg_pts).sum()
+        # Win/Loss context
+        if 'wl' in df_sorted.columns:
+            wins = df_sorted[df_sorted['wl'] == 'W']
+            losses = df_sorted[df_sorted['wl'] == 'L']
+            
+            if len(wins) > 0:
+                features['pts_in_wins'] = wins['pts'].mean()
+                features['win_rate'] = len(wins) / len(df_sorted)
+            
+            if len(losses) > 0:
+                features['pts_in_losses'] = losses['pts'].mean()
+        
+        # Monthly performance trends
+        df_sorted['month'] = df_sorted['game_date_dt'].dt.month
+        current_month = df_sorted['month'].iloc[-1]
+        current_month_games = df_sorted[df_sorted['month'] == current_month]
+        if len(current_month_games) > 1:
+            features['pts_current_month'] = current_month_games['pts'].mean()
+            features['games_current_month'] = len(current_month_games)
         
         return features
     
-    def _create_home_away_features(self, df: pd.DataFrame) -> Dict:
-        """Create home/away performance features."""
+    def _create_usage_features(self, df: pd.DataFrame) -> Dict:
+        """Create features related to player usage and role."""
         features = {}
         
-        if 'matchup' not in df.columns:
+        if len(df) < 3:
             return features
         
-        # Determine home/away games
-        df['is_home'] = df['matchup'].str.contains('vs.')
+        # Usage indicators
+        avg_min = df['min'].mean()
+        features['avg_minutes'] = avg_min
+        features['high_usage_games'] = np.sum(df['min'] >= avg_min * 1.2)
+        features['low_usage_games'] = np.sum(df['min'] <= avg_min * 0.8)
         
-        home_games = df[df['is_home'] == True]
-        away_games = df[df['is_home'] == False]
+        # Efficiency metrics
+        if 'fga' in df.columns and 'pts' in df.columns:
+            total_fga = df['fga'].sum()
+            total_pts = df['pts'].sum()
+            if total_fga > 0:
+                features['points_per_fga'] = total_pts / total_fga
         
-        # Home performance
-        if len(home_games) > 0:
-            features['home_pts_avg'] = home_games['pts'].mean()
-            features['home_games_count'] = len(home_games)
-        else:
-            features['home_pts_avg'] = 0
-            features['home_games_count'] = 0
+        # Role consistency
+        features['minutes_consistency'] = 1 - (df['min'].std() / (df['min'].mean() + 1e-8))
         
-        # Away performance
-        if len(away_games) > 0:
-            features['away_pts_avg'] = away_games['pts'].mean()
-            features['away_games_count'] = len(away_games)
-        else:
-            features['away_pts_avg'] = 0
-            features['away_games_count'] = 0
-        
-        # Home/away differential
-        features['home_away_pts_diff'] = features['home_pts_avg'] - features['away_pts_avg']
+        # Production per minute
+        if avg_min > 0:
+            for stat in ['pts', 'reb', 'ast']:
+                if stat in df.columns:
+                    features[f'{stat}_per_minute'] = df[stat].mean() / avg_min
         
         return features
     
+    def _create_opponent_type_features(self, df: pd.DataFrame, conn: sqlite3.Connection) -> Dict:
+        """Create features based on opponent strength and type."""
+        features = {}
+        
+        # This would require opponent team data - simplified version
+        if 'matchup' in df.columns:
+            # Extract opponent from matchup string
+            home_games = df['matchup'].str.contains('vs.').sum()
+            away_games = len(df) - home_games
+            
+            features['home_game_ratio'] = home_games / len(df)
+            features['away_game_ratio'] = away_games / len(df)
+            
+            # Performance splits
+            if home_games > 0:
+                home_df = df[df['matchup'].str.contains('vs.')]
+                features['pts_vs_home'] = home_df['pts'].mean()
+            
+            if away_games > 0:
+                away_df = df[~df['matchup'].str.contains('vs.')]
+                features['pts_vs_away'] = away_df['pts'].mean()
+        
+        return features
+    
+    def _create_pace_adjusted_features(self, df: pd.DataFrame, conn: sqlite3.Connection) -> Dict:
+        """Create pace-adjusted performance features."""
+        features = {}
+        
+        # Simplified pace adjustment - would need team pace data for full implementation
+        avg_min = df['min'].mean()
+        if avg_min > 0:
+            # Estimate possessions based on minutes played
+            est_possessions = avg_min * 1.2  # Rough estimate
+            
+            for stat in ['pts', 'reb', 'ast']:
+                if stat in df.columns:
+                    features[f'{stat}_per_100_poss'] = (df[stat].mean() / est_possessions) * 100
+        
+        return features
+    
+    def _create_clutch_performance_features(self, df: pd.DataFrame) -> Dict:
+        """Create features for clutch/high-pressure performance."""
+        features = {}
+        
+        # This would require play-by-play data for true clutch stats
+        # Using close games as proxy for clutch situations
+        if 'plus_minus' in df.columns:
+            close_games = df[abs(df['plus_minus']) <= 5]  # Games decided by 5 or less
+            if len(close_games) > 0:
+                features['clutch_games_count'] = len(close_games)
+                features['clutch_pts_avg'] = close_games['pts'].mean()
+                features['clutch_performance'] = close_games['pts'].mean() - df['pts'].mean()
+        
+        return features
+    
+    def _create_momentum_shift_features(self, df: pd.DataFrame) -> Dict:
+        """Create features capturing momentum and performance shifts."""
+        features = {}
+        
+        if len(df) < 5:
+            return features
+        
+        # Performance acceleration/deceleration
+        for stat in ['pts', 'reb', 'ast']:
+            if stat in df.columns:
+                values = df.sort_values('game_date')[stat].values
+                
+                # Second derivative (acceleration)
+                if len(values) >= 3:
+                    first_diff = np.diff(values)
+                    second_diff = np.diff(first_diff)
+                    features[f'{stat}_acceleration'] = np.mean(second_diff[-3:])  # Recent acceleration
+                
+                # Momentum score (weighted recent performance)
+                weights = np.exp(np.linspace(0, 1, len(values)))
+                features[f'{stat}_momentum_score'] = np.average(values, weights=weights)
+        
+        return features
+    
+    def _create_game_context_features(self, df: pd.DataFrame) -> Dict:
+        """Create features based on broader game context."""
+        features = {}
+        
+        # Performance in different game outcomes
+        if 'wl' in df.columns and 'plus_minus' in df.columns:
+            # Blowout vs close game performance
+            blowouts = df[abs(df['plus_minus']) >= 20]
+            close_games = df[abs(df['plus_minus']) <= 5]
+            
+            if len(blowouts) > 0:
+                features['blowout_pts_avg'] = blowouts['pts'].mean()
+                features['blowout_games_count'] = len(blowouts)
+            
+            if len(close_games) > 0:
+                features['close_game_pts_avg'] = close_games['pts'].mean()
+                features['close_games_count'] = len(close_games)
+        
+        return features
+    
+    def _create_team_strength_features(self, opponent_team_id: int, target_date: str, 
+                                     conn: sqlite3.Connection) -> Dict:
+        """Create features based on opponent team strength."""
+        features = {}
+        
+        # Get opponent team's recent performance
+        query = """
+            SELECT AVG(pts) as opp_pts_allowed, AVG(reb) as opp_reb_allowed,
+                   AVG(ast) as opp_ast_allowed, COUNT(*) as opp_games
+            FROM player_games
+            WHERE team_id != ? AND game_date < ? AND game_date >= date(?, '-30 days')
+        """
+        
+        try:
+            result = conn.execute(query, (opponent_team_id, target_date, target_date)).fetchone()
+            if result and result[3] > 5:  # At least 5 games of data
+                features['opp_pts_allowed_avg'] = result[0] or 0
+                features['opp_reb_allowed_avg'] = result[1] or 0
+                features['opp_ast_allowed_avg'] = result[2] or 0
+                features['opp_defensive_games'] = result[3] or 0
+        except Exception as e:
+            logger.warning(f"Could not get opponent strength features: {e}")
+        
+        return features
+    
+    def _create_head_to_head_features(self, player_id: int, opponent_team_id: int, 
+                                    target_date: str, conn: sqlite3.Connection) -> Dict:
+        """Create head-to-head matchup features."""
+        features = {}
+        
+        # Get historical performance vs this opponent
+        query = """
+            SELECT AVG(pts) as h2h_pts_avg, AVG(reb) as h2h_reb_avg, 
+                   AVG(ast) as h2h_ast_avg, COUNT(*) as h2h_games,
+                   MAX(pts) as h2h_pts_max, MIN(pts) as h2h_pts_min
+            FROM player_games pg
+            WHERE pg.player_id = ? AND pg.game_date < ?
+            AND EXISTS (
+                SELECT 1 FROM player_games pg2 
+                WHERE pg2.game_date = pg.game_date 
+                AND pg2.team_id = ? 
+                AND pg2.player_id != pg.player_id
+            )
+        """
+        
+        try:
+            result = conn.execute(query, (player_id, target_date, opponent_team_id)).fetchone()
+            if result and result[3] > 0:  # Has H2H history
+                features['h2h_pts_avg'] = result[0] or 0
+                features['h2h_reb_avg'] = result[1] or 0
+                features['h2h_ast_avg'] = result[2] or 0
+                features['h2h_games_count'] = result[3] or 0
+                features['h2h_pts_max'] = result[4] or 0
+                features['h2h_pts_min'] = result[5] or 0
+                features['h2h_pts_range'] = features['h2h_pts_max'] - features['h2h_pts_min']
+        except Exception as e:
+            logger.warning(f"Could not get head-to-head features: {e}")
+        
+        return features
+
     def _create_rest_features(self, df: pd.DataFrame) -> Dict:
         """Create features related to rest and fatigue."""
         features = {}
@@ -245,276 +485,37 @@ class FeatureEngineer:
         
         return features
     
-    def _create_opponent_features(self, df: pd.DataFrame) -> Dict:
-        """Create features based on opponent analysis."""
+    def _create_home_away_features(self, df: pd.DataFrame) -> Dict:
+        """Create home/away performance features."""
         features = {}
         
-        # This is a placeholder for opponent-based features
-        # In a full implementation, you would analyze opponent defensive ratings,
-        # pace, etc.
-        
-        features['placeholder_opp_feature'] = 0
-        
-        return features
-    
-    def _calculate_streaks(self, df: pd.DataFrame) -> Dict:
-        """Calculate performance streaks."""
-        features = {}
-        
-        if len(df) < 2:
+        if 'matchup' not in df.columns:
             return features
         
-        # Points scoring streaks
-        pts_values = df['pts'].values
-        season_avg = np.mean(pts_values)
+        # Determine home/away games
+        df['is_home'] = df['matchup'].str.contains('vs.')
         
-        # Current streak above/below average
-        current_streak = 0
-        for i in range(len(pts_values) - 1, -1, -1):
-            if pts_values[i] > season_avg:
-                current_streak += 1
-            else:
-                break
+        home_games = df[df['is_home'] == True]
+        away_games = df[df['is_home'] == False]
         
-        features['current_above_avg_streak'] = current_streak
-        
-        # Similar for other stats
-        if 'reb' in df.columns:
-            reb_avg = df['reb'].mean()
-            features['current_reb_trend'] = 1 if df['reb'].iloc[-1] > reb_avg else 0
-        
-        return features
-    
-    def _calculate_trend(self, values: np.ndarray) -> float:
-        """Calculate the trend (slope) of a series of values."""
-        if len(values) < 2:
-            return 0.0
-        
-        # Remove NaN values
-        clean_values = values[~np.isnan(values)]
-        if len(clean_values) < 2:
-            return 0.0
-        
-        x = np.arange(len(clean_values))
-        slope = np.polyfit(x, clean_values, 1)[0]
-        
-        return slope
-    
-    def create_training_dataset(self, players_list: List[int], 
-                               start_date: str, end_date: str,
-                               target_stats: List[str] = ['pts', 'reb', 'ast'],
-                               include_h2h_features: bool = False) -> pd.DataFrame:
-        """Create a complete training dataset with features and targets."""
-        all_features = []
-        
-        conn = sqlite3.connect(self.db_path)
-        
-        for player_id in players_list:
-            # Get all games for this player in the date range
-            query = """
-                SELECT * FROM player_games 
-                WHERE player_id = ? AND game_date BETWEEN ? AND ?
-                ORDER BY game_date
-            """
-            
-            player_games = pd.read_sql_query(query, conn, params=(player_id, start_date, end_date))
-            
-            if len(player_games) < 10:  # Need sufficient history
-                continue
-            
-            # For each game, create features based on previous games
-            for i in range(10, len(player_games)):  # Start after 10 games for feature history
-                target_game = player_games.iloc[i]
-                target_date = target_game['game_date']
-                
-                # Extract opponent team ID if including h2h features
-                opponent_team_id = None
-                if include_h2h_features and 'matchup' in target_game:
-                    # Try to extract team ID from matchup string
-                    matchup = target_game['matchup']
-                    if isinstance(matchup, str):
-                        if 'vs.' in matchup:
-                            opponent_name = matchup.split('vs. ')[-1]
-                        elif '@' in matchup:
-                            opponent_name = matchup.split('@ ')[-1]
-                        else:
-                            opponent_name = None
-                        
-                        # For simplicity, we'll use a basic team mapping
-                        # In production, you'd want a proper team name to ID mapping
-                        if opponent_name:
-                            # This is a simplified approach - you may want to improve this
-                            opponent_team_id = hash(opponent_name) % 1000000  # Simple hash for demo
-                
-                # Create features
-                features_df = self.create_features_for_player(
-                    player_id, target_date, 
-                    opponent_team_id=opponent_team_id,
-                    include_h2h_features=include_h2h_features
-                )
-                
-                if not features_df.empty:
-                    # Add target values
-                    for stat in target_stats:
-                        if stat in target_game:
-                            features_df[f'target_{stat}'] = target_game[stat]
-                    
-                    # Add game metadata
-                    features_df['game_id'] = target_game.get('game_id', '')
-                    features_df['game_date'] = target_date
-                    
-                    all_features.append(features_df)
-        
-        conn.close()
-        
-        if all_features:
-            final_dataset = pd.concat(all_features, ignore_index=True)
-            return final_dataset
+        # Home performance
+        if len(home_games) > 0:
+            features['home_pts_avg'] = home_games['pts'].mean()
+            features['home_games_count'] = len(home_games)
         else:
-            return pd.DataFrame()
-    
-    def prepare_features_for_prediction(self, features_df: pd.DataFrame) -> pd.DataFrame:
-        """Prepare features for model prediction (scaling, encoding, etc.)."""
-        if features_df.empty:
-            return features_df
+            features['home_pts_avg'] = 0
+            features['home_games_count'] = 0
         
-        # Make a copy to avoid modifying the original
-        prepared_df = features_df.copy()
+        # Away performance
+        if len(away_games) > 0:
+            features['away_pts_avg'] = away_games['pts'].mean()
+            features['away_games_count'] = len(away_games)
+        else:
+            features['away_pts_avg'] = 0
+            features['away_games_count'] = 0
         
-        # Handle missing values
-        numeric_columns = prepared_df.select_dtypes(include=[np.number]).columns
-        prepared_df[numeric_columns] = prepared_df[numeric_columns].fillna(0)
-        
-        # Scale numerical features (excluding IDs and dates)
-        exclude_columns = ['player_id', 'target_date', 'game_id', 'game_date']
-        scale_columns = [col for col in numeric_columns if col not in exclude_columns and not col.startswith('target_')]
-        
-        if scale_columns:
-            prepared_df[scale_columns] = self.scaler.fit_transform(prepared_df[scale_columns])
-        
-        return prepared_df
-
-    def _create_advanced_form_features(self, df: pd.DataFrame) -> Dict:
-        """Create advanced recent form and momentum features."""
-        features = {}
-        
-        if len(df) < 3:
-            return features
-            
-        # Sort by date
-        df_sorted = df.sort_values('game_date').reset_index(drop=True)
-        
-        # Recent momentum features
-        stat_columns = ['pts', 'reb', 'ast']
-        
-        for stat in stat_columns:
-            if stat in df_sorted.columns:
-                values = df_sorted[stat].values
-                
-                # Last 3 games momentum
-                if len(values) >= 3:
-                    last_3 = values[-3:]
-                    features[f'{stat}_momentum_3g'] = self._calculate_momentum(last_3)
-                else:
-                    features[f'{stat}_momentum_3g'] = 0.0
-                
-                # Last 5 games momentum
-                if len(values) >= 5:
-                    last_5 = values[-5:]
-                    features[f'{stat}_momentum_5g'] = self._calculate_momentum(last_5)
-                else:
-                    features[f'{stat}_momentum_5g'] = 0.0
-                
-                # Performance vs season percentiles
-                season_values = values
-                if len(season_values) >= 10:
-                    last_game = values[-1]
-                    percentile = (season_values < last_game).mean() * 100
-                    features[f'{stat}_percentile'] = percentile
-                else:
-                    features[f'{stat}_percentile'] = 50.0  # Default to 50th percentile
-                
-                # Hot/cold streaks
-                if len(values) > 0:
-                    season_avg = np.mean(values)
-                    current_streak = self._calculate_current_streak(values, season_avg)
-                    features[f'{stat}_streak'] = current_streak
-                else:
-                    features[f'{stat}_streak'] = 0
-                
-                # Volatility (coefficient of variation)
-                if len(values) >= 5 and season_avg > 0:
-                    cv = np.std(values) / season_avg
-                    features[f'{stat}_volatility'] = cv
-                else:
-                    # Always create volatility feature with default value for consistency
-                    features[f'{stat}_volatility'] = 0.0
-        
-        return features
-    
-    def _calculate_momentum(self, values: np.ndarray) -> float:
-        """Calculate momentum as weighted recent performance."""
-        if len(values) < 2:
-            return 0.0
-        
-        # Weight recent games more heavily
-        weights = np.linspace(0.5, 1.0, len(values))
-        weighted_trend = self._calculate_trend(values * weights)
-        
-        return weighted_trend
-    
-    def _calculate_current_streak(self, values: np.ndarray, threshold: float) -> int:
-        """Calculate current streak above/below threshold."""
-        if len(values) == 0:
-            return 0
-        
-        streak = 0
-        above_threshold = values[-1] > threshold
-        
-        for i in range(len(values) - 1, -1, -1):
-            if (values[i] > threshold) == above_threshold:
-                streak += 1
-            else:
-                break
-        
-        # Return positive for above threshold, negative for below
-        return streak if above_threshold else -streak
-    
-    def _create_matchup_features(self, df: pd.DataFrame) -> Dict:
-        """Create features based on opponent and matchup context."""
-        features = {}
-        
-        if 'matchup' not in df.columns or len(df) == 0:
-            return features
-        
-        # Extract opponent information
-        opponent_teams = []
-        for matchup in df['matchup']:
-            if isinstance(matchup, str):
-                if 'vs.' in matchup:
-                    opponent = matchup.split('vs. ')[-1]
-                elif '@' in matchup:
-                    opponent = matchup.split('@ ')[-1]
-                else:
-                    opponent = 'UNKNOWN'
-                opponent_teams.append(opponent)
-        
-        if opponent_teams:
-            # Most common opponents
-            from collections import Counter
-            opponent_counts = Counter(opponent_teams)
-            features['most_common_opponent_games'] = max(opponent_counts.values()) if opponent_counts else 0
-            features['unique_opponents'] = len(opponent_counts)
-            
-            # Performance against different opponents (if enough data)
-            if len(df) >= 10:
-                df_with_opponents = df.copy()
-                df_with_opponents['opponent'] = opponent_teams[:len(df)]
-                
-                if 'pts' in df.columns:
-                    avg_pts_by_opp = df_with_opponents.groupby('opponent')['pts'].mean()
-                    if len(avg_pts_by_opp) > 1:
-                        features['pts_opponent_variance'] = avg_pts_by_opp.std()
+        # Home/away differential
+        features['home_away_pts_diff'] = features['home_pts_avg'] - features['away_pts_avg']
         
         return features
     
@@ -669,3 +670,196 @@ class FeatureEngineer:
             })
         
         return features 
+
+    def _calculate_trend(self, values: np.ndarray) -> float:
+        """Calculate the trend (slope) of a series of values."""
+        if len(values) < 2:
+            return 0.0
+        
+        # Remove NaN values
+        clean_values = values[~np.isnan(values)]
+        if len(clean_values) < 2:
+            return 0.0
+        
+        x = np.arange(len(clean_values))
+        slope = np.polyfit(x, clean_values, 1)[0]
+        
+        return slope
+    
+    def _calculate_momentum(self, values: np.ndarray) -> float:
+        """Calculate momentum as weighted recent performance trend."""
+        if len(values) < 2:
+            return 0.0
+        
+        # Weight recent games more heavily
+        weights = np.linspace(0.5, 1.0, len(values))
+        try:
+            weighted_trend = self._calculate_trend(values * weights)
+            return weighted_trend
+        except:
+            return 0.0
+    
+    def _calculate_current_streak(self, values: np.ndarray, threshold: float) -> int:
+        """Calculate current streak above/below threshold."""
+        if len(values) == 0:
+            return 0
+        
+        streak = 0
+        above_threshold = values[-1] > threshold
+        
+        for i in range(len(values) - 1, -1, -1):
+            if (values[i] > threshold) == above_threshold:
+                streak += 1
+            else:
+                break
+        
+        # Return positive for above threshold, negative for below
+        return streak if above_threshold else -streak
+    
+    def create_training_dataset(self, players_list: List[int], 
+                               start_date: str, end_date: str,
+                               target_stats: List[str] = ['pts', 'reb', 'ast'],
+                               include_h2h_features: bool = True,
+                               include_advanced_features: bool = True) -> pd.DataFrame:
+        """Create a complete training dataset with advanced features and targets."""
+        all_features = []
+        
+        conn = sqlite3.connect(self.db_path)
+        logger.info(f"Creating training dataset for {len(players_list)} players from {start_date} to {end_date}")
+        
+        # Progress bar for players
+        with tqdm(players_list, desc="Processing Players", ncols=80,
+                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
+            for player_id in pbar:
+                # Get all games for this player in the date range
+                query = """
+                    SELECT * FROM player_games 
+                    WHERE player_id = ? AND game_date BETWEEN ? AND ?
+                    ORDER BY game_date
+                """
+                
+                player_games = pd.read_sql_query(query, conn, params=(player_id, start_date, end_date))
+                
+                if len(player_games) < 15:  # Need sufficient history for advanced features
+                    pbar.write(f"   ⚠️  Skipping player {player_id} - insufficient games ({len(player_games)})")
+                    continue
+                
+                pbar.set_description(f"Player {player_id} ({len(player_games)} games)")
+                
+                # Calculate total games to process for this player
+                games_to_process = len(player_games) - 15
+                if games_to_process <= 0:
+                    continue
+                
+                # Progress bar for games within each player
+                game_indices = range(15, len(player_games))
+                player_samples_count = 0
+                
+                with tqdm(game_indices, desc=f"Games (P{player_id})", ncols=60, 
+                          bar_format="{desc}: {n_fmt}/{total_fmt}", leave=False) as game_pbar:
+                    
+                    # For each game, create features based on previous games
+                    for i in game_pbar:
+                        target_game = player_games.iloc[i]
+                        target_date = target_game['game_date']
+                        
+                        # Extract opponent team ID if including h2h features
+                        opponent_team_id = None
+                        if include_h2h_features and 'matchup' in target_game:
+                            matchup = str(target_game['matchup'])
+                            # Simple opponent extraction - in production you'd want proper team mapping
+                            if 'vs.' in matchup:
+                                opponent_name = matchup.split('vs. ')[-1].strip()
+                            elif '@' in matchup:
+                                opponent_name = matchup.split('@ ')[-1].strip()
+                            else:
+                                opponent_name = None
+                            
+                            if opponent_name:
+                                # Use a hash-based approach for demo - replace with actual team IDs
+                                opponent_team_id = abs(hash(opponent_name)) % 1000000
+                        
+                        try:
+                            # Create advanced features
+                            features_df = self.create_features_for_player(
+                                player_id, target_date, 
+                                lookback_games=20,
+                                opponent_team_id=opponent_team_id,
+                                include_h2h_features=include_h2h_features,
+                                include_advanced_features=include_advanced_features
+                            )
+                            
+                            if not features_df.empty:
+                                # Add target values
+                                for stat in target_stats:
+                                    if stat in target_game:
+                                        features_df[f'target_{stat}'] = target_game[stat]
+                                
+                                # Add game metadata
+                                features_df['game_id'] = target_game.get('game_id', '')
+                                features_df['game_date'] = target_date
+                                
+                                all_features.append(features_df)
+                                player_samples_count += 1
+                                
+                        except Exception as e:
+                            game_pbar.write(f"     ⚠️  Error creating features for player {player_id} on {target_date}: {e}")
+                            continue
+                
+                # Update main progress bar with summary
+                pbar.write(f"   ✅ Player {player_id}: {player_samples_count} training samples created")
+        
+        conn.close()
+        
+        if all_features:
+            final_dataset = pd.concat(all_features, ignore_index=True)
+            tqdm.write(f"🎯 Final dataset: {len(final_dataset)} samples with {len(final_dataset.columns)} features")
+            logger.info(f"Created training dataset with {len(final_dataset)} samples and {len(final_dataset.columns)} features")
+            return final_dataset
+        else:
+            tqdm.write("❌ No training data created")
+            logger.warning("No training data created")
+            return pd.DataFrame()
+    
+    def prepare_features_for_prediction(self, features_df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare features for model prediction with advanced preprocessing."""
+        if features_df.empty:
+            return features_df
+        
+        # Make a copy to avoid modifying the original
+        prepared_df = features_df.copy()
+        
+        # Handle missing values with more sophisticated imputation
+        numeric_columns = prepared_df.select_dtypes(include=[np.number]).columns
+        
+        # Exclude metadata columns from processing
+        exclude_columns = ['player_id', 'target_date', 'game_id', 'game_date', 'opponent_team_id']
+        exclude_columns.extend([col for col in prepared_df.columns if col.startswith('target_')])
+        
+        process_columns = [col for col in numeric_columns if col not in exclude_columns]
+        
+        if process_columns:
+            # Fill missing values with median (more robust than mean)
+            prepared_df[process_columns] = prepared_df[process_columns].fillna(
+                prepared_df[process_columns].median()
+            )
+            
+            # Handle any remaining NaN values
+            prepared_df[process_columns] = prepared_df[process_columns].fillna(0)
+            
+            # Detect and handle outliers using IQR method
+            for col in process_columns:
+                Q1 = prepared_df[col].quantile(0.25)
+                Q3 = prepared_df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                
+                # Cap outliers instead of removing them
+                prepared_df[col] = prepared_df[col].clip(lower=lower_bound, upper=upper_bound)
+        
+        return prepared_df
+
+
+# For backward compatibility, create an alias
+FeatureEngineer = AdvancedFeatureEngineer 

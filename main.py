@@ -9,6 +9,7 @@ import sys
 import logging
 from datetime import datetime, timedelta
 import pandas as pd
+from tqdm import tqdm
 
 # Add src to path
 sys.path.append('src')
@@ -138,6 +139,7 @@ class NBAStatPredictorApp:
         start_date = "2022-10-01"
         end_date = "2024-01-01"
         
+        print("📊 Creating training dataset...")
         training_data = self.feature_engineer.create_training_dataset(
             players_list=players_with_data,
             start_date=start_date,
@@ -154,15 +156,19 @@ class NBAStatPredictorApp:
         # Train models for each stat
         stat_types = ['pts', 'reb', 'ast', 'stl', 'blk']
         
-        for stat_type in stat_types:
-            try:
-                logger.info(f"Training model for {stat_type}...")
-                metrics = self.model_manager.train_model(stat_type, training_data)
-                logger.info(f"{stat_type} model trained - Validation MAE: {metrics['val_mae']:.2f}")
-            except Exception as e:
-                logger.error(f"Error training {stat_type} model: {e}")
+        print("\n🏀 Training standard models:")
+        with tqdm(stat_types, desc="Training Models", ncols=80,
+                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
+            for stat_type in pbar:
+                try:
+                    pbar.set_description(f"Training {stat_type.upper()}")
+                    metrics = self.model_manager.train_model(stat_type, training_data)
+                    mae = metrics.get('test_mae', metrics.get('val_mae', 0))
+                    pbar.write(f"✅ {stat_type.upper()} model trained - MAE: {mae:.2f}")
+                except Exception as e:
+                    pbar.write(f"❌ Error training {stat_type} model: {e}")
         
-        logger.info("Model training completed!")
+        print("\n✅ Model training completed!")
     
     def predict_tonight(self):
         """Make predictions for tonight's games."""

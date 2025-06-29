@@ -19,24 +19,68 @@ data_collection:
 # Model training settings
 models:
   algorithms:
-    - random_forest
-    # - xgboost  # Can be enabled for more advanced modeling
-    # - neural_network
+    - ensemble        # Primary model with stacking
+    - lightgbm       # Advanced gradient boosting
+    - catboost       # Categorical boosting
+    - random_forest  # Robust baseline
+    - xgboost        # Extreme gradient boosting
+    - neural_network # Deep learning approach
   
+  # Default model for new training
+  default_algorithm: ensemble
+  
+  # Advanced hyperparameter optimization
+  hyperparameter_optimization:
+    enabled: true
+    n_iterations: 30  # Bayesian optimization iterations
+    cv_folds: 5
+    
+  # Model-specific configurations
   random_forest:
     n_estimators: 150
     max_depth: 12
-    min_samples_split: 5
-    min_samples_leaf: 2
+    min_samples_split: 3
+    min_samples_leaf: 1
+    random_state: 42
+    
+  lightgbm:
+    num_leaves: 31
+    learning_rate: 0.05
+    feature_fraction: 0.9
+    bagging_fraction: 0.8
+    min_child_samples: 20
+    random_state: 42
+    
+  catboost:
+    iterations: 1000
+    learning_rate: 0.03
+    depth: 6
+    l2_leaf_reg: 3
+    random_seed: 42
+    
+  xgboost:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+    
+  neural_network:
+    hidden_layer_sizes: [100, 50, 25]
+    learning_rate_init: 0.001
+    max_iter: 1000
     random_state: 42
     
   validation:
     test_size: 0.2
     cv_folds: 5
+    time_series_cv: true  # Use time series cross-validation
     
   retraining:
-    performance_threshold: 0.15  # Retrain if MAE increases by 15%
-    min_days_between_retraining: 7
+    performance_threshold: 0.10  # Retrain if MAE increases by 10%
+    min_days_between_retraining: 5
+    auto_retrain: true
     
 # Prediction settings
 predictions:
@@ -44,14 +88,31 @@ predictions:
   confidence_threshold: 0.6
   max_predictions_per_stat: 20
   
-# Feature engineering settings
+# Advanced feature engineering settings
 features:
-  rolling_windows: [3, 5, 10]
-  trend_periods: [5, 10]
+  rolling_windows: [3, 5, 10, 15, 20]
+  trend_periods: [3, 5, 10, 15]
   home_away_splits: true
   rest_analysis: true
   consistency_metrics: true
-  opponent_strength: false  # Future feature
+  
+  # Advanced feature sets
+  opponent_strength: true
+  head_to_head_analysis: true
+  situational_features: true
+  momentum_features: true
+  clutch_performance: true
+  pace_adjusted_stats: true
+  usage_patterns: true
+  
+  # Feature processing
+  outlier_detection: true
+  feature_scaling: true
+  missing_value_strategy: "median"  # median, mean, or zero
+  
+  # Lookback periods
+  default_lookback_games: 20
+  max_lookback_games: 40
   
 # Logging settings
 logging:

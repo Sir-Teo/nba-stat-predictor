@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import time
+from tqdm import tqdm
 
 # Add src to path
 sys.path.append('src')
@@ -490,6 +491,7 @@ class InteractiveNBADashboard:
             
             if choice == "1":
                 print("🚀 Starting standard model training...")
+                print("📊 Training models with progress tracking...\n")
                 self.app.train_models()
                 print("✅ Standard model training completed!")
             elif choice == "2":
@@ -539,6 +541,7 @@ class InteractiveNBADashboard:
             start_date = "2022-10-01"
             end_date = "2024-01-01"
             
+            print("📊 Creating enhanced training dataset...")
             training_data = self.feature_engineer.create_training_dataset(
                 players_list=players_with_data,
                 start_date=start_date,
@@ -556,15 +559,19 @@ class InteractiveNBADashboard:
             # Train models for each stat
             stat_types = ['pts', 'reb', 'ast', 'stl', 'blk']
             
-            for stat_type in stat_types:
-                try:
-                    print(f"Training enhanced model for {stat_type}...")
-                    metrics = self.model_manager.train_model(stat_type, training_data)
-                    print(f"{stat_type} enhanced model trained - Validation MAE: {metrics['val_mae']:.2f}")
-                except Exception as e:
-                    print(f"Error training {stat_type} model: {e}")
+            print("\n🏀 Training enhanced models:")
+            with tqdm(stat_types, desc="Training Models", ncols=80, 
+                      bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]") as pbar:
+                for stat_type in pbar:
+                    try:
+                        pbar.set_description(f"Training {stat_type.upper()}")
+                        metrics = self.model_manager.train_model(stat_type, training_data)
+                        mae = metrics.get('test_mae', metrics.get('val_mae', 0))
+                        pbar.write(f"✅ {stat_type.upper()} model trained - MAE: {mae:.2f}")
+                    except Exception as e:
+                        pbar.write(f"❌ Error training {stat_type} model: {e}")
             
-            print("✅ Advanced model training completed!")
+            print("\n✅ Advanced model training completed!")
             print("💡 To use h2h features in predictions, you'll need to modify the prediction code.")
             
         except Exception as e:
