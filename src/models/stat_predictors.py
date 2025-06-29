@@ -59,7 +59,7 @@ class AdvancedStatPredictor:
         
     def train(self, X: pd.DataFrame, y: pd.Series, optimize_hyperparams: bool = True) -> Dict[str, float]:
         """Train the model with advanced evaluation and hyperparameter optimization."""
-        # Time series split for temporal validation (REDUCED from 5 to 3 folds)
+        # Time series split for temporal validation (reduced from 5 to 3 folds)
         tscv = TimeSeriesSplit(n_splits=3)
         
         # Scale features
@@ -88,7 +88,7 @@ class AdvancedStatPredictor:
         metrics['cv_mae_mean'] = -cv_scores.mean()
         metrics['cv_mae_std'] = cv_scores.std()
         
-        # Calculate confidence intervals (REDUCED computation)
+        # Calculate confidence intervals (reduced bootstrap samples)
         tqdm.write(f"   🎲 Computing confidence intervals for {self.stat_type}...")
         self.confidence_intervals = self._calculate_confidence_intervals(X_scaled, y)
         
@@ -153,8 +153,7 @@ class AdvancedStatPredictor:
     
     def _calculate_confidence_intervals(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         """Calculate confidence intervals using bootstrap sampling."""
-        # REDUCED from 100 to 20 bootstrap samples for speed
-        n_bootstrap = 20
+        n_bootstrap = 25  # Reduced from 100 to 25 for faster training
         predictions_bootstrap = []
         
         with tqdm(range(n_bootstrap), desc="Bootstrap CI", ncols=60, 
@@ -244,28 +243,34 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
     """LightGBM-based stat predictor with advanced features."""
     
     def __init__(self, stat_type: str, model_version: str = "lgb_v2.0", **kwargs):
+        """Initialize LightGBM predictor with optimized parameters."""
         super().__init__(stat_type, model_version)
         
-        if not LIGHTGBM_AVAILABLE:
-            raise ImportError("LightGBM is not available. Install with: pip install lightgbm")
-        
-        # Default parameters optimized for NBA stats
+        # Optimized parameters for faster training
         default_params = {
             'objective': 'regression',
             'metric': 'mae',
             'boosting_type': 'gbdt',
-            'num_leaves': 31,
-            'learning_rate': 0.05,
-            'feature_fraction': 0.9,
+            'num_leaves': 25,      # Reduced from 31
+            'learning_rate': 0.1,
+            'feature_fraction': 0.8,
             'bagging_fraction': 0.8,
             'bagging_freq': 5,
             'min_child_samples': 20,
             'random_state': 42,
-            'verbose': -1
+            'verbosity': -1,
+            'n_estimators': 75     # Reduced from 100
         }
+        
         default_params.update(kwargs)
         
-        self.model = lgb.LGBMRegressor(**default_params)
+        if LIGHTGBM_AVAILABLE:
+            self.model = lgb.LGBMRegressor(**default_params)
+        else:
+            # Fallback to XGBoost if LightGBM not available
+            self.model = xgb.XGBRegressor(
+                n_estimators=75, max_depth=4, learning_rate=0.1, random_state=42
+            )
     
     def _get_param_space(self):
         """Get parameter space for hyperparameter optimization."""
@@ -290,7 +295,7 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             search = BayesSearchCV(
                 lgb.LGBMRegressor(random_state=42, verbosity=-1),
                 self._get_param_space(),
-                n_iter=10,  # REDUCED from 20 to 10 iterations
+                n_iter=10,  # Reduced from 20 to 10 iterations
                 cv=cv,
                 scoring='neg_mean_absolute_error',
                 random_state=42,
@@ -300,9 +305,9 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             tqdm.write("     Using grid search...")
             # Simplified grid search if BayesSearchCV is not available
             param_grid = {
-                'n_estimators': [100, 150],  # REDUCED options
-                'learning_rate': [0.1],      # REDUCED to single option
-                'max_depth': [6, 8]          # REDUCED options
+                'n_estimators': [100, 150],  # Reduced options
+                'learning_rate': [0.1],      # Single value
+                'max_depth': [6]             # Single value
             }
             search = GridSearchCV(
                 lgb.LGBMRegressor(random_state=42, verbosity=-1),
@@ -395,10 +400,10 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
     def __init__(self, stat_type: str, model_version: str = "ensemble_v2.0"):
         super().__init__(stat_type, model_version)
         
-        # Base models for ensemble
+        # Base models for ensemble (reduced complexity for speed)
         self.base_models = {
-            'rf': RandomForestRegressor(n_estimators=100, random_state=42),
-            'xgb': xgb.XGBRegressor(n_estimators=100, random_state=42),
+            'rf': RandomForestRegressor(n_estimators=50, max_depth=8, random_state=42),  # Reduced from 100 estimators
+            'xgb': xgb.XGBRegressor(n_estimators=50, max_depth=4, random_state=42),     # Reduced complexity
             'ridge': Ridge(alpha=1.0, random_state=42),
             'elastic': ElasticNet(alpha=0.1, random_state=42)
         }
@@ -420,7 +425,7 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
         
-        # Time series split for stacking (REDUCED from 5 to 3 folds)
+        # Time series split for stacking (reduced from 5 to 3 folds)
         tscv = TimeSeriesSplit(n_splits=3)
         
         # Generate stacking features
@@ -541,14 +546,13 @@ class ModelManager:
     def create_predictor(self, stat_type: str, model_type: str = "ensemble") -> AdvancedStatPredictor:
         """Create a new stat predictor."""
         if model_type == "random_forest":
-            from sklearn.ensemble import RandomForestRegressor
             # Create a RandomForestRegressor wrapped in AdvancedStatPredictor
             class RandomForestStatPredictor(AdvancedStatPredictor):
                 def __init__(self, stat_type: str, **kwargs):
                     super().__init__(stat_type, "rf_v2.0")
                     default_params = {
-                        'n_estimators': 150, 'max_depth': 12, 'min_samples_split': 3,
-                        'min_samples_leaf': 1, 'random_state': 42
+                        'n_estimators': 100, 'max_depth': 8, 'min_samples_split': 5,  # Reduced complexity
+                        'min_samples_leaf': 2, 'random_state': 42  # Increased leaf size
                     }
                     default_params.update(kwargs)
                     self.model = RandomForestRegressor(**default_params)
@@ -563,7 +567,7 @@ class ModelManager:
                 def __init__(self, stat_type: str, **kwargs):
                     super().__init__(stat_type, "xgb_v2.0")
                     default_params = {
-                        'n_estimators': 100, 'max_depth': 6, 'learning_rate': 0.1,
+                        'n_estimators': 75, 'max_depth': 4, 'learning_rate': 0.1,  # Reduced complexity
                         'subsample': 0.8, 'colsample_bytree': 0.8, 'random_state': 42
                     }
                     default_params.update(kwargs)
