@@ -389,11 +389,15 @@ class FeatureEngineer:
                 if len(values) >= 3:
                     last_3 = values[-3:]
                     features[f'{stat}_momentum_3g'] = self._calculate_momentum(last_3)
+                else:
+                    features[f'{stat}_momentum_3g'] = 0.0
                 
                 # Last 5 games momentum
                 if len(values) >= 5:
                     last_5 = values[-5:]
                     features[f'{stat}_momentum_5g'] = self._calculate_momentum(last_5)
+                else:
+                    features[f'{stat}_momentum_5g'] = 0.0
                 
                 # Performance vs season percentiles
                 season_values = values
@@ -401,16 +405,24 @@ class FeatureEngineer:
                     last_game = values[-1]
                     percentile = (season_values < last_game).mean() * 100
                     features[f'{stat}_percentile'] = percentile
+                else:
+                    features[f'{stat}_percentile'] = 50.0  # Default to 50th percentile
                 
                 # Hot/cold streaks
-                season_avg = np.mean(values)
-                current_streak = self._calculate_current_streak(values, season_avg)
-                features[f'{stat}_streak'] = current_streak
+                if len(values) > 0:
+                    season_avg = np.mean(values)
+                    current_streak = self._calculate_current_streak(values, season_avg)
+                    features[f'{stat}_streak'] = current_streak
+                else:
+                    features[f'{stat}_streak'] = 0
                 
                 # Volatility (coefficient of variation)
                 if len(values) >= 5 and season_avg > 0:
                     cv = np.std(values) / season_avg
                     features[f'{stat}_volatility'] = cv
+                else:
+                    # Always create volatility feature with default value for consistency
+                    features[f'{stat}_volatility'] = 0.0
         
         return features
     
