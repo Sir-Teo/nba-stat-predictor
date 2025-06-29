@@ -1,7 +1,7 @@
 # NBA Stat Predictor Makefile
 # Provides simple commands for common operations
 
-.PHONY: help setup install clean test predict train status backtest logs
+.PHONY: help setup install clean test predict train status backtest logs daily-dashboard status performance setup-dashboard
 
 # Default target
 help:
@@ -30,6 +30,23 @@ help:
 	@echo "Configuration:"
 	@echo "  Edit config.yaml to customize settings"
 	@echo "  Check QUICK_START.md for detailed instructions"
+	@echo ""
+	@echo "🏀 DAILY DASHBOARD COMMANDS:"
+	@echo "  make daily-dashboard    - Run the complete daily workflow"
+	@echo "  make status            - Quick system health check"
+	@echo "  make performance       - Show recent performance metrics"
+	@echo "  make setup-dashboard   - Initial dashboard setup"
+	@echo ""
+	@echo "🔧 SYSTEM COMMANDS:"
+	@echo "  make setup             - Complete system setup"
+	@echo "  make collect           - Collect NBA data"
+	@echo "  make train             - Train prediction models"
+	@echo "  make predict           - Make predictions for tonight"
+	@echo "  make accuracy          - Check prediction accuracy"
+	@echo "  make update-results    - Update predictions with actual results"
+	@echo "  make retrain           - Check and retrain models if needed"
+	@echo "  make full-pipeline     - Run complete data→train→predict pipeline"
+	@echo "  make clean             - Clean temporary files"
 
 # Setup and installation
 setup:
@@ -147,4 +164,21 @@ lint:
 # Show configuration
 config:
 	@echo "⚙️  Current configuration:"
-	@if [ -f config.yaml ]; then cat config.yaml; else echo "No config.yaml found. Run 'make setup' first."; fi 
+	@if [ -f config.yaml ]; then cat config.yaml; else echo "No config.yaml found. Run 'make setup' first."; fi
+
+# Dashboard commands
+daily-dashboard:
+	@echo "🏀 Running Daily NBA Dashboard..."
+	python daily_dashboard.py daily
+
+status:
+	@echo "🏀 Checking System Status..."
+	python daily_dashboard.py status
+
+performance:
+	@echo "📈 Showing Performance Summary..."
+	python daily_dashboard.py performance
+
+setup-dashboard:
+	@echo "🔧 Setting up NBA Dashboard..."
+	python daily_dashboard.py setup 
