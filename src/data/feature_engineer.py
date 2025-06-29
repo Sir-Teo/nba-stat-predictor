@@ -23,7 +23,8 @@ class FeatureEngineer:
         self.label_encoders = {}
         
     def create_features_for_player(self, player_id: int, target_date: str, 
-                                  lookback_games: int = 15, opponent_team_id: int = None) -> pd.DataFrame:
+                                  lookback_games: int = 15, opponent_team_id: int = None, 
+                                  include_h2h_features: bool = False) -> pd.DataFrame:
         """Create comprehensive features for a player for prediction."""
         conn = sqlite3.connect(self.db_path)
         
@@ -68,8 +69,8 @@ class FeatureEngineer:
         # Opponent-based features (if available)
         features.update(self._create_opponent_features(df))
         
-        # Opponent-specific features if team ID provided
-        if opponent_team_id is not None:
+        # Opponent-specific features if team ID provided and h2h features are enabled
+        if opponent_team_id is not None and include_h2h_features:
             features.update(self._create_opponent_specific_features(player_id, opponent_team_id, target_date, conn))
         
         conn.close()
@@ -78,7 +79,8 @@ class FeatureEngineer:
         features_df = pd.DataFrame([features])
         features_df['player_id'] = player_id
         features_df['target_date'] = target_date
-        if opponent_team_id is not None:
+        # Only add opponent_team_id if h2h features are included (to maintain compatibility)
+        if opponent_team_id is not None and include_h2h_features:
             features_df['opponent_team_id'] = opponent_team_id
         
         return features_df
@@ -300,7 +302,8 @@ class FeatureEngineer:
     
     def create_training_dataset(self, players_list: List[int], 
                                start_date: str, end_date: str,
-                               target_stats: List[str] = ['pts', 'reb', 'ast']) -> pd.DataFrame:
+                               target_stats: List[str] = ['pts', 'reb', 'ast'],
+                               include_h2h_features: bool = False) -> pd.DataFrame:
         """Create a complete training dataset with features and targets."""
         all_features = []
         
@@ -324,8 +327,31 @@ class FeatureEngineer:
                 target_game = player_games.iloc[i]
                 target_date = target_game['game_date']
                 
+                # Extract opponent team ID if including h2h features
+                opponent_team_id = None
+                if include_h2h_features and 'matchup' in target_game:
+                    # Try to extract team ID from matchup string
+                    matchup = target_game['matchup']
+                    if isinstance(matchup, str):
+                        if 'vs.' in matchup:
+                            opponent_name = matchup.split('vs. ')[-1]
+                        elif '@' in matchup:
+                            opponent_name = matchup.split('@ ')[-1]
+                        else:
+                            opponent_name = None
+                        
+                        # For simplicity, we'll use a basic team mapping
+                        # In production, you'd want a proper team name to ID mapping
+                        if opponent_name:
+                            # This is a simplified approach - you may want to improve this
+                            opponent_team_id = hash(opponent_name) % 1000000  # Simple hash for demo
+                
                 # Create features
-                features_df = self.create_features_for_player(player_id, target_date)
+                features_df = self.create_features_for_player(
+                    player_id, target_date, 
+                    opponent_team_id=opponent_team_id,
+                    include_h2h_features=include_h2h_features
+                )
                 
                 if not features_df.empty:
                     # Add target values

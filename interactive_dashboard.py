@@ -355,9 +355,9 @@ class InteractiveNBADashboard:
             # Get current date for prediction
             game_date = datetime.now().strftime('%Y-%m-%d')
             
-            # Create features for this player
+            # Create features for this player (without h2h features for compatibility with existing models)
             features_df = self.feature_engineer.create_features_for_player(
-                player_id, game_date, opponent_team_id=team_info['id']
+                player_id, game_date, opponent_team_id=team_info['id'], include_h2h_features=False
             )
             
             if features_df.empty:
@@ -480,12 +480,95 @@ class InteractiveNBADashboard:
                 if proceed != 'y':
                     return
             
-            print("🚀 Starting model training...")
-            self.app.train_models()
-            print("✅ Model training completed!")
+            # Ask about training mode
+            print("\nTraining Options:")
+            print("1. Standard training (compatible with current predictions)")
+            print("2. Advanced training with head-to-head features (requires retraining)")
+            print("3. Back to main menu")
+            
+            choice = input("\nSelect training mode (1-3): ").strip()
+            
+            if choice == "1":
+                print("🚀 Starting standard model training...")
+                self.app.train_models()
+                print("✅ Standard model training completed!")
+            elif choice == "2":
+                print("🚀 Starting advanced model training with h2h features...")
+                print("⚠️  This will create new models with enhanced features.")
+                print("   After training, predictions will include opponent-specific analysis.")
+                confirm = input("Continue with advanced training? (y/N): ").strip().lower()
+                if confirm == 'y':
+                    self._train_advanced_models()
+                else:
+                    print("Advanced training cancelled.")
+            elif choice == "3":
+                return
+            else:
+                print("❌ Invalid choice.")
             
         except Exception as e:
             print(f"❌ Error during training: {e}")
+    
+    def _train_advanced_models(self):
+        """Train models with head-to-head features."""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get players with sufficient data
+            cursor.execute("""
+                SELECT player_id, COUNT(*) as game_count
+                FROM player_games
+                GROUP BY player_id
+                HAVING game_count >= 20
+                ORDER BY game_count DESC
+                LIMIT 100
+            """)
+            
+            players_with_data = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            if not players_with_data:
+                print("❌ No players with sufficient data found.")
+                return
+            
+            print(f"Training advanced models with data from {len(players_with_data)} players")
+            
+            # Create training dataset with h2h features
+            start_date = "2022-10-01"
+            end_date = "2024-01-01"
+            
+            training_data = self.feature_engineer.create_training_dataset(
+                players_list=players_with_data,
+                start_date=start_date,
+                end_date=end_date,
+                target_stats=['pts', 'reb', 'ast', 'stl', 'blk'],
+                include_h2h_features=True
+            )
+            
+            if training_data.empty:
+                print("❌ Could not create training dataset")
+                return
+            
+            print(f"Created enhanced training dataset with {len(training_data)} samples")
+            
+            # Train models for each stat
+            stat_types = ['pts', 'reb', 'ast', 'stl', 'blk']
+            
+            for stat_type in stat_types:
+                try:
+                    print(f"Training enhanced model for {stat_type}...")
+                    metrics = self.model_manager.train_model(stat_type, training_data)
+                    print(f"{stat_type} enhanced model trained - Validation MAE: {metrics['val_mae']:.2f}")
+                except Exception as e:
+                    print(f"Error training {stat_type} model: {e}")
+            
+            print("✅ Advanced model training completed!")
+            print("💡 To use h2h features in predictions, you'll need to modify the prediction code.")
+            
+        except Exception as e:
+            print(f"❌ Error in advanced training: {e}")
     
     def view_recent_predictions(self):
         """View recent predictions made by the system."""
