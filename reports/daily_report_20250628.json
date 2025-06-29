@@ -1,0 +1,18 @@
+{
+  "date": "2025-06-28",
+  "timestamp": "2025-06-28T21:18:27.198172",
+  "system_status": {
+    "error": "no such column: date"
+  },
+  "performance": {
+    "has_data": false,
+    "message": "No recent predictions with results"
+  },
+  "predictions": {
+    "has_games": false,
+    "message": "No games scheduled for today"
+  },
+  "recommendations": [
+    "No games today - consider running backtests or data collection"
+  ]
+}

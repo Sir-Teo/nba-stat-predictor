@@ -58,16 +58,28 @@ venv.bak/
 *.swo
 *~
 
-# Project specific
-data/
-models/
-*.db
-*.sqlite
-*.sqlite3
+# Project specific - Data & Models
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.csv
+data/*.json
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pt
+models/*.pth
 
-# Logs
-*.log
+# Project specific - Generated files
 logs/
+*.log
+plots/
+*.png
+*.jpg
+*.pdf
+backups/
+temp/
+tmp/
 
 # OS
 .DS_Store
@@ -80,7 +92,19 @@ Thumbs.db
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*/.ipynb_checkpoints/*
 
 # IPython
 profile_default/
-ipython_config.py 
+ipython_config.py
+
+# API Keys and Secrets
+.env.local
+.env.production
+secrets.yaml
+api_keys.txt
+
+# Development
+.mypy_cache/
+.dmypy.json
+dmypy.json 

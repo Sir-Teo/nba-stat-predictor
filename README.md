@@ -2,6 +2,38 @@
 
 A comprehensive machine learning system that predicts NBA player statistics for tonight's games and continuously improves its accuracy through self-learning mechanisms.
 
+## ✨ Recent Updates
+- **Reorganized project structure** with dedicated `docs/` and `examples/` directories
+- **Updated dependencies** to latest stable versions (December 2024)
+- **Enhanced documentation** with comprehensive guides and tutorials
+- **Improved examples** with step-by-step quick start guide
+
+## 📁 Project Structure
+
+```
+nba-stat-predictor/
+├── src/                    # Core application code
+│   ├── data/              # Data collection and processing
+│   ├── models/            # ML model implementations
+│   ├── predictions/       # Prediction logic
+│   ├── evaluation/        # Performance evaluation tools
+│   └── utils/             # Utility functions
+├── docs/                  # Documentation hub
+│   ├── README.md          # Documentation index
+│   ├── improvements_summary.md
+│   ├── system_validation_report.md
+│   └── ...                # Other guides and reports
+├── examples/              # Tutorials and examples
+│   ├── NBA_Predictor_Tutorial.ipynb
+│   └── quick_start.py     # Simple usage example
+├── data/                  # Database and data files
+├── models/                # Trained model files
+├── main.py                # Main CLI application
+├── nba_dashboard.py       # Interactive dashboard
+├── setup.py               # Automated setup script
+└── config.yaml            # Configuration file
+```
+
 ## Features
 
 - **Data Collection**: Automatically gathers NBA player statistics from official APIs
