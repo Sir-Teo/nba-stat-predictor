@@ -4,30 +4,31 @@ NBA Daily Dashboard with Self-Improvement System
 A comprehensive interface for daily NBA stat predictions with automated model improvement.
 """
 
-import sys
+import json
+import logging
 import os
 import sqlite3
-import pandas as pd
-import numpy as np
+import sys
+import time
 from datetime import datetime, timedelta
-import logging
-import yaml
-import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import time
-import matplotlib.pyplot as plt
+
 import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
+import yaml
 
 # Add src to path
 sys.path.append("src")
 
 from main import NBAStatPredictorApp
 from src.data.nba_data_collector import NBADataCollector
+from src.evaluation.backtester import NBABacktester
 from src.models.stat_predictors import ModelManager
 from src.predictions.tonight_predictor import TonightPredictor
-from src.evaluation.backtester import NBABacktester
 
 
 def setup_logging(log_dir="logs"):
@@ -406,9 +407,9 @@ class SelfImprovingDashboard:
                 # Generate special LeBron vs Mavericks analysis
                 lebron_analysis = self._analyze_lebron_vs_mavericks()
                 return {
-                    "has_games": False, 
+                    "has_games": False,
                     "message": "No games scheduled for today",
-                    "special_analysis": lebron_analysis
+                    "special_analysis": lebron_analysis,
                 }
 
             # Organize predictions by stat type
@@ -437,7 +438,7 @@ class SelfImprovingDashboard:
         """Analyze LeBron James performance vs Dallas Mavericks."""
         try:
             conn = sqlite3.connect(self.db_path)
-            
+
             # Get LeBron's data (ID: 2544)
             lebron_query = """
                 SELECT game_date, matchup, pts, reb, ast, stl, blk, fg_pct, min
@@ -446,46 +447,55 @@ class SelfImprovingDashboard:
                 ORDER BY game_date DESC
                 LIMIT 50
             """
-            
+
             lebron_data = pd.read_sql_query(lebron_query, conn)
-            
+
             if lebron_data.empty:
-                return {"available": False, "message": "LeBron James data not available"}
-            
+                return {
+                    "available": False,
+                    "message": "LeBron James data not available",
+                }
+
             # Get LeBron vs Mavericks games
             mavs_games = lebron_data[
-                lebron_data['matchup'].str.contains('DAL|Mavericks', case=False, na=False)
+                lebron_data["matchup"].str.contains(
+                    "DAL|Mavericks", case=False, na=False
+                )
             ]
-            
+
             # Calculate overall stats
             overall_stats = {
-                'pts_avg': lebron_data['pts'].mean(),
-                'reb_avg': lebron_data['reb'].mean(),
-                'ast_avg': lebron_data['ast'].mean(),
-                'games_played': len(lebron_data)
+                "pts_avg": lebron_data["pts"].mean(),
+                "reb_avg": lebron_data["reb"].mean(),
+                "ast_avg": lebron_data["ast"].mean(),
+                "games_played": len(lebron_data),
             }
-            
+
             # Calculate vs Mavericks stats
             if not mavs_games.empty:
                 mavs_stats = {
-                    'pts_avg': mavs_games['pts'].mean(),
-                    'reb_avg': mavs_games['reb'].mean(),
-                    'ast_avg': mavs_games['ast'].mean(),
-                    'games_vs_mavs': len(mavs_games),
-                    'best_game': mavs_games.loc[mavs_games['pts'].idxmax()] if len(mavs_games) > 0 else None
+                    "pts_avg": mavs_games["pts"].mean(),
+                    "reb_avg": mavs_games["reb"].mean(),
+                    "ast_avg": mavs_games["ast"].mean(),
+                    "games_vs_mavs": len(mavs_games),
+                    "best_game": (
+                        mavs_games.loc[mavs_games["pts"].idxmax()]
+                        if len(mavs_games) > 0
+                        else None
+                    ),
                 }
             else:
                 mavs_stats = None
-            
+
             conn.close()
-            
+
             return {
                 "available": True,
                 "overall_stats": overall_stats,
                 "vs_mavericks": mavs_stats,
-                "recent_games": lebron_data.head(10).to_dict('records')
+                "recent_games": lebron_data.head(10).to_dict("records"),
             }
-            
+
         except Exception as e:
             self.logger.error(f"Error analyzing LeBron vs Mavericks: {e}")
             return {"available": False, "error": str(e)}
@@ -494,71 +504,125 @@ class SelfImprovingDashboard:
         """Create visual charts for performance analysis."""
         try:
             # Set up the plotting style
-            plt.style.use('seaborn-v0_8')
+            plt.style.use("seaborn-v0_8")
             fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-            fig.suptitle('NBA Prediction Dashboard - Performance Analysis', fontsize=16, fontweight='bold')
-            
+            fig.suptitle(
+                "NBA Prediction Dashboard - Performance Analysis",
+                fontsize=16,
+                fontweight="bold",
+            )
+
             # Chart 1: System Performance Over Time
             if report.get("performance", {}).get("has_data"):
                 ax1 = axes[0, 0]
                 metrics = report["performance"]["metrics"]
                 stats = list(metrics.keys())
-                mae_values = [metrics[stat]['mae'] for stat in stats]
-                
-                bars = ax1.bar(stats, mae_values, color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'])
-                ax1.set_title('Model Accuracy (MAE by Stat)', fontweight='bold')
-                ax1.set_ylabel('Mean Absolute Error')
-                ax1.tick_params(axis='x', rotation=45)
-                
+                mae_values = [metrics[stat]["mae"] for stat in stats]
+
+                bars = ax1.bar(
+                    stats,
+                    mae_values,
+                    color=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
+                )
+                ax1.set_title("Model Accuracy (MAE by Stat)", fontweight="bold")
+                ax1.set_ylabel("Mean Absolute Error")
+                ax1.tick_params(axis="x", rotation=45)
+
                 # Add value labels on bars
                 for bar, value in zip(bars, mae_values):
-                    ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                            f'{value:.2f}', ha='center', va='bottom')
+                    ax1.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.01,
+                        f"{value:.2f}",
+                        ha="center",
+                        va="bottom",
+                    )
             else:
-                ax1.text(0.5, 0.5, 'No Performance\nData Available', 
-                        ha='center', va='center', transform=ax1.transAxes, fontsize=12)
-                ax1.set_title('Model Performance', fontweight='bold')
-            
+                ax1.text(
+                    0.5,
+                    0.5,
+                    "No Performance\nData Available",
+                    ha="center",
+                    va="center",
+                    transform=ax1.transAxes,
+                    fontsize=12,
+                )
+                ax1.set_title("Model Performance", fontweight="bold")
+
             # Chart 2: LeBron vs Mavericks Analysis
             ax2 = axes[0, 1]
             special_analysis = report.get("predictions", {}).get("special_analysis", {})
-            
-            if special_analysis.get("available") and special_analysis.get("vs_mavericks"):
+
+            if special_analysis.get("available") and special_analysis.get(
+                "vs_mavericks"
+            ):
                 lebron_overall = special_analysis["overall_stats"]
                 lebron_vs_mavs = special_analysis["vs_mavericks"]
-                
-                categories = ['Points', 'Rebounds', 'Assists']
-                overall_values = [lebron_overall['pts_avg'], lebron_overall['reb_avg'], lebron_overall['ast_avg']]
-                mavs_values = [lebron_vs_mavs['pts_avg'], lebron_vs_mavs['reb_avg'], lebron_vs_mavs['ast_avg']]
-                
+
+                categories = ["Points", "Rebounds", "Assists"]
+                overall_values = [
+                    lebron_overall["pts_avg"],
+                    lebron_overall["reb_avg"],
+                    lebron_overall["ast_avg"],
+                ]
+                mavs_values = [
+                    lebron_vs_mavs["pts_avg"],
+                    lebron_vs_mavs["reb_avg"],
+                    lebron_vs_mavs["ast_avg"],
+                ]
+
                 x = np.arange(len(categories))
                 width = 0.35
-                
-                bars1 = ax2.bar(x - width/2, overall_values, width, label='Overall Average', color='#1f77b4')
-                bars2 = ax2.bar(x + width/2, mavs_values, width, label='vs Mavericks', color='#ff7f0e')
-                
-                ax2.set_title('LeBron James: Overall vs Mavericks', fontweight='bold')
-                ax2.set_ylabel('Average Per Game')
+
+                bars1 = ax2.bar(
+                    x - width / 2,
+                    overall_values,
+                    width,
+                    label="Overall Average",
+                    color="#1f77b4",
+                )
+                bars2 = ax2.bar(
+                    x + width / 2,
+                    mavs_values,
+                    width,
+                    label="vs Mavericks",
+                    color="#ff7f0e",
+                )
+
+                ax2.set_title("LeBron James: Overall vs Mavericks", fontweight="bold")
+                ax2.set_ylabel("Average Per Game")
                 ax2.set_xticks(x)
                 ax2.set_xticklabels(categories)
                 ax2.legend()
-                
+
                 # Add value labels
                 for bars in [bars1, bars2]:
                     for bar in bars:
                         height = bar.get_height()
-                        ax2.text(bar.get_x() + bar.get_width()/2, height + 0.3,
-                                f'{height:.1f}', ha='center', va='bottom')
+                        ax2.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            height + 0.3,
+                            f"{height:.1f}",
+                            ha="center",
+                            va="bottom",
+                        )
             else:
-                ax2.text(0.5, 0.5, 'LeBron vs Mavericks\nData Not Available', 
-                        ha='center', va='center', transform=ax2.transAxes, fontsize=12)
-                ax2.set_title('LeBron vs Mavericks Analysis', fontweight='bold')
-            
+                ax2.text(
+                    0.5,
+                    0.5,
+                    "LeBron vs Mavericks\nData Not Available",
+                    ha="center",
+                    va="center",
+                    transform=ax2.transAxes,
+                    fontsize=12,
+                )
+                ax2.set_title("LeBron vs Mavericks Analysis", fontweight="bold")
+
             # Chart 3: Database Growth
             ax3 = axes[1, 0]
             try:
                 conn = sqlite3.connect(self.db_path)
-                
+
                 # Get games by month
                 growth_query = """
                     SELECT 
@@ -569,32 +633,54 @@ class SelfImprovingDashboard:
                     GROUP BY strftime('%Y-%m', game_date)
                     ORDER BY month
                 """
-                
+
                 growth_data = pd.read_sql_query(growth_query, conn)
                 conn.close()
-                
+
                 if not growth_data.empty:
-                    ax3.plot(growth_data['month'], growth_data['games_count'], 
-                            marker='o', linewidth=2, markersize=6, color='#2ca02c')
-                    ax3.set_title('Database Growth (Games per Month)', fontweight='bold')
-                    ax3.set_ylabel('Games Collected')
-                    ax3.tick_params(axis='x', rotation=45)
+                    ax3.plot(
+                        growth_data["month"],
+                        growth_data["games_count"],
+                        marker="o",
+                        linewidth=2,
+                        markersize=6,
+                        color="#2ca02c",
+                    )
+                    ax3.set_title(
+                        "Database Growth (Games per Month)", fontweight="bold"
+                    )
+                    ax3.set_ylabel("Games Collected")
+                    ax3.tick_params(axis="x", rotation=45)
                     ax3.grid(True, alpha=0.3)
                 else:
-                    ax3.text(0.5, 0.5, 'No Growth Data\nAvailable', 
-                            ha='center', va='center', transform=ax3.transAxes, fontsize=12)
-                    ax3.set_title('Database Growth', fontweight='bold')
-                    
+                    ax3.text(
+                        0.5,
+                        0.5,
+                        "No Growth Data\nAvailable",
+                        ha="center",
+                        va="center",
+                        transform=ax3.transAxes,
+                        fontsize=12,
+                    )
+                    ax3.set_title("Database Growth", fontweight="bold")
+
             except Exception as e:
-                ax3.text(0.5, 0.5, f'Growth Chart\nError: {str(e)[:20]}...', 
-                        ha='center', va='center', transform=ax3.transAxes, fontsize=10)
-                ax3.set_title('Database Growth', fontweight='bold')
-            
+                ax3.text(
+                    0.5,
+                    0.5,
+                    f"Growth Chart\nError: {str(e)[:20]}...",
+                    ha="center",
+                    va="center",
+                    transform=ax3.transAxes,
+                    fontsize=10,
+                )
+                ax3.set_title("Database Growth", fontweight="bold")
+
             # Chart 4: Top Performers
             ax4 = axes[1, 1]
             try:
                 conn = sqlite3.connect(self.db_path)
-                
+
                 top_scorers_query = """
                     SELECT 
                         CASE 
@@ -609,43 +695,69 @@ class SelfImprovingDashboard:
                     ORDER BY avg_pts DESC
                     LIMIT 8
                 """
-                
+
                 top_scorers = pd.read_sql_query(top_scorers_query, conn)
                 conn.close()
-                
+
                 if not top_scorers.empty:
-                    colors = ['#ff7f0e' if 'LeBron' in name else '#1f77b4' for name in top_scorers['player_name']]
-                    bars = ax4.barh(top_scorers['player_name'], top_scorers['avg_pts'], color=colors)
-                    ax4.set_title('Top Scorers in Database', fontweight='bold')
-                    ax4.set_xlabel('Average Points Per Game')
-                    
+                    colors = [
+                        "#ff7f0e" if "LeBron" in name else "#1f77b4"
+                        for name in top_scorers["player_name"]
+                    ]
+                    bars = ax4.barh(
+                        top_scorers["player_name"], top_scorers["avg_pts"], color=colors
+                    )
+                    ax4.set_title("Top Scorers in Database", fontweight="bold")
+                    ax4.set_xlabel("Average Points Per Game")
+
                     # Add value labels
-                    for bar, value in zip(bars, top_scorers['avg_pts']):
-                        ax4.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
-                                f'{value:.1f}', ha='left', va='center')
+                    for bar, value in zip(bars, top_scorers["avg_pts"]):
+                        ax4.text(
+                            bar.get_width() + 0.5,
+                            bar.get_y() + bar.get_height() / 2,
+                            f"{value:.1f}",
+                            ha="left",
+                            va="center",
+                        )
                 else:
-                    ax4.text(0.5, 0.5, 'No Scorer Data\nAvailable', 
-                            ha='center', va='center', transform=ax4.transAxes, fontsize=12)
-                    ax4.set_title('Top Scorers', fontweight='bold')
-                    
+                    ax4.text(
+                        0.5,
+                        0.5,
+                        "No Scorer Data\nAvailable",
+                        ha="center",
+                        va="center",
+                        transform=ax4.transAxes,
+                        fontsize=12,
+                    )
+                    ax4.set_title("Top Scorers", fontweight="bold")
+
             except Exception as e:
-                ax4.text(0.5, 0.5, f'Scorers Chart\nError: {str(e)[:20]}...', 
-                        ha='center', va='center', transform=ax4.transAxes, fontsize=10)
-                ax4.set_title('Top Scorers', fontweight='bold')
-            
+                ax4.text(
+                    0.5,
+                    0.5,
+                    f"Scorers Chart\nError: {str(e)[:20]}...",
+                    ha="center",
+                    va="center",
+                    transform=ax4.transAxes,
+                    fontsize=10,
+                )
+                ax4.set_title("Top Scorers", fontweight="bold")
+
             plt.tight_layout()
-            
+
             # Save the chart
             charts_dir = Path("charts")
             charts_dir.mkdir(exist_ok=True)
-            chart_path = charts_dir / f"dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-            
+            chart_path = (
+                charts_dir / f"dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            )
+            plt.savefig(chart_path, dpi=300, bbox_inches="tight")
+
             # Display the chart
             plt.show()
-            
+
             return str(chart_path)
-            
+
         except Exception as e:
             self.logger.error(f"Error creating performance charts: {e}")
             return None
@@ -780,8 +892,12 @@ class SelfImprovingDashboard:
         print("\n📊 SYSTEM STATUS")
         print("-" * 40)
         status = report["system_status"]
-        total_games = status.get('total_games', 'N/A')
-        print(f"Total Games in DB:     {total_games:,}" if isinstance(total_games, int) else f"Total Games in DB:     {total_games}")
+        total_games = status.get("total_games", "N/A")
+        print(
+            f"Total Games in DB:     {total_games:,}"
+            if isinstance(total_games, int)
+            else f"Total Games in DB:     {total_games}"
+        )
         print(f"Unique Players:        {status.get('unique_players', 'N/A')}")
         print(f"Models Trained:        {status.get('models_trained', 'N/A')}/5")
         print(f"Recent Predictions:    {status.get('recent_predictions', 'N/A')}")
@@ -800,29 +916,41 @@ class SelfImprovingDashboard:
 
         # LeBron vs Mavericks Special Analysis
         special_analysis = report.get("predictions", {}).get("special_analysis", {})
-        
+
         if special_analysis.get("available"):
             print("\n👑 LEBRON JAMES vs DALLAS MAVERICKS ANALYSIS")
             print("=" * 60)
-            
+
             overall_stats = special_analysis["overall_stats"]
             print(f"LeBron's Recent Form ({overall_stats['games_played']} games):")
-            print(f"  📊 {overall_stats['pts_avg']:.1f} pts | {overall_stats['reb_avg']:.1f} reb | {overall_stats['ast_avg']:.1f} ast")
-            
+            print(
+                f"  📊 {overall_stats['pts_avg']:.1f} pts | {overall_stats['reb_avg']:.1f} reb | {overall_stats['ast_avg']:.1f} ast"
+            )
+
             vs_mavs = special_analysis.get("vs_mavericks")
             if vs_mavs:
                 print(f"\nVs Dallas Mavericks ({vs_mavs['games_vs_mavs']} games):")
-                print(f"  🎯 {vs_mavs['pts_avg']:.1f} pts | {vs_mavs['reb_avg']:.1f} reb | {vs_mavs['ast_avg']:.1f} ast")
-                
-                if vs_mavs.get('best_game'):
-                    best = vs_mavs['best_game']
-                    print(f"  🔥 Best vs DAL: {best['pts']} pts, {best['reb']} reb, {best['ast']} ast ({best['game_date']})")
-                
+                print(
+                    f"  🎯 {vs_mavs['pts_avg']:.1f} pts | {vs_mavs['reb_avg']:.1f} reb | {vs_mavs['ast_avg']:.1f} ast"
+                )
+
+                if vs_mavs.get("best_game"):
+                    best = vs_mavs["best_game"]
+                    print(
+                        f"  🔥 Best vs DAL: {best['pts']} pts, {best['reb']} reb, {best['ast']} ast ({best['game_date']})"
+                    )
+
                 # Prediction
-                predicted_pts = vs_mavs['pts_avg'] * 0.8 + overall_stats['pts_avg'] * 0.2
-                predicted_reb = vs_mavs['reb_avg'] * 0.8 + overall_stats['reb_avg'] * 0.2
-                predicted_ast = vs_mavs['ast_avg'] * 0.8 + overall_stats['ast_avg'] * 0.2
-                
+                predicted_pts = (
+                    vs_mavs["pts_avg"] * 0.8 + overall_stats["pts_avg"] * 0.2
+                )
+                predicted_reb = (
+                    vs_mavs["reb_avg"] * 0.8 + overall_stats["reb_avg"] * 0.2
+                )
+                predicted_ast = (
+                    vs_mavs["ast_avg"] * 0.8 + overall_stats["ast_avg"] * 0.2
+                )
+
                 print(f"\n🔮 NEXT GAME vs MAVERICKS PREDICTION:")
                 print(f"  🏀 {predicted_pts:.1f} points (High confidence)")
                 print(f"  🏀 {predicted_reb:.1f} rebounds (High confidence)")
@@ -872,7 +1000,9 @@ class SelfImprovingDashboard:
         else:
             print("\n💡 RECOMMENDATIONS")
             print("-" * 40)
-            print("  1. No games today - perfect time to analyze LeBron vs Mavericks matchup!")
+            print(
+                "  1. No games today - perfect time to analyze LeBron vs Mavericks matchup!"
+            )
             print("  2. Consider running backtests to validate prediction accuracy")
             print("  3. LeBron data is now available for future predictions")
 
