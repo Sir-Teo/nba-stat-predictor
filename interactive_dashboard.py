@@ -535,9 +535,10 @@ class InteractiveNBADashboard:
             print(
                 "2. Advanced training with head-to-head features (requires retraining)"
             )
-            print("3. Back to main menu")
+            print("3. Player-specific training (train models for a specific player)")
+            print("4. Back to main menu")
 
-            choice = input("\nSelect training mode (1-3): ").strip()
+            choice = input("\nSelect training mode (1-4): ").strip()
 
             if choice == "1":
                 print("🚀 Starting standard model training...")
@@ -558,6 +559,8 @@ class InteractiveNBADashboard:
                 else:
                     print("Advanced training cancelled.")
             elif choice == "3":
+                self._train_player_specific_models()
+            elif choice == "4":
                 return
             else:
                 print("❌ Invalid choice.")
@@ -647,6 +650,80 @@ class InteractiveNBADashboard:
 
         except Exception as e:
             print(f"❌ Error in advanced training: {e}")
+
+    def _train_player_specific_models(self):
+        """Train models for a specific player."""
+        try:
+            player_name = input("Enter player name: ").strip()
+            if not player_name:
+                print("❌ Player name required.")
+                return
+
+            player_id = self._find_player_id(player_name)
+            if not player_id:
+                print(f"❌ Player '{player_name}' not found.")
+                return
+
+            # Check if player has sufficient data
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM player_games WHERE player_id = ?",
+                (player_id,)
+            )
+            game_count = cursor.fetchone()[0]
+            conn.close()
+
+            print(f"\n🔍 Found {player_name} with {game_count} games in database")
+            
+            if game_count < 30:
+                print(f"⚠️  Player has limited data ({game_count} games)")
+                proceed = input("Continue with training? (y/N): ").strip().lower()
+                if proceed != "y":
+                    print("Training cancelled.")
+                    return
+
+            # Choose model type
+            print("\nModel Options:")
+            print("1. Ensemble (best accuracy, slower)")
+            print("2. Random Forest (good balance)")
+            print("3. LightGBM (fast, good performance)")
+            print("4. XGBoost (good performance)")
+            
+            model_choice = input("Select model type (1-4, default=2): ").strip()
+            model_types = {
+                "1": "ensemble",
+                "2": "random_forest", 
+                "3": "lightgbm",
+                "4": "xgboost"
+            }
+            model_type = model_types.get(model_choice, "random_forest")
+            
+            print(f"\n🧠 Training {model_type} models for {player_name}")
+            print("This will create personalized models based on the player's performance patterns.")
+
+            # Train models for the player
+            results = self.model_manager.train_models_for_player(
+                player_id=player_id,
+                player_name=player_name,
+                model_type=model_type,
+                optimize_hyperparams=True
+            )
+
+            # Show results
+            successful_models = [stat for stat, metrics in results.items() if 'error' not in metrics]
+            failed_models = [stat for stat, metrics in results.items() if 'error' in metrics]
+            
+            print(f"\n✅ Player-specific model training completed!")
+            print(f"   Successfully trained: {len(successful_models)} models")
+            if failed_models:
+                print(f"   Failed to train: {len(failed_models)} models ({', '.join(failed_models)})")
+            
+            print(f"\n🎯 Models saved for {player_name} (ID: {player_id})")
+            print("   You can now get personalized predictions for this player!")
+
+        except Exception as e:
+            print(f"❌ Error during player-specific training: {e}")
 
     def view_recent_predictions(self):
         """View recent predictions made by the system."""
