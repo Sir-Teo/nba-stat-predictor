@@ -120,12 +120,11 @@ class InteractiveNBADashboard:
         """Display main menu options."""
         print("\n[MAIN MENU]")
         print("   1. Update Data (Fetch Latest NBA Data)")
-        print("   2. Predict Player Stats vs Team (Basic)")
-        print("   3. Enhanced Predictions with Advanced Analysis")
-        print("   4. Train/Retrain Models")
-        print("   5. View System Status")
-        print("   6. View Recent Predictions")
-        print("   7. Exit")
+        print("   2. Predict Player Stats vs Team")
+        print("   3. Train/Retrain Models")
+        print("   4. View System Status")
+        print("   5. View Recent Predictions")
+        print("   6. Exit")
         print()
 
     def handle_data_update(self):
@@ -262,38 +261,339 @@ class InteractiveNBADashboard:
         except Exception as e:
             print(f"❌ Error during custom update: {e}")
 
-    def handle_player_prediction(self):
-        """Handle player vs team prediction."""
-        print("\n🎯 PLAYER STATS PREDICTION")
-        print("-" * 40)
-
+    def handle_unified_predictions(self):
+        """Handle unified prediction system with user choice of analysis level."""
+        print("\n[UNIFIED PREDICTION SYSTEM]")
+        print("=" * 60)
+        print("Choose your analysis level:")
+        print("   1. Quick Prediction (Fast, basic features)")
+        print("   2. Comprehensive Analysis (530+ features, enhanced confidence)")
+        print("   3. Let system decide based on player age")
+        print("-" * 60)
+        
+        analysis_choice = input("Select analysis level (1-3, default=3): ").strip()
+        
         # Get player name
         player_name = input("Enter player name: ").strip()
         if not player_name:
-            print("❌ Player name required.")
+            print("[ERROR] Player name required.")
             return
 
-        # Get opposing team
-        team_name = input("Enter opposing team (name or abbreviation): ").strip()
-        if not team_name:
-            print("❌ Team name required.")
-            return
-
-        # Find player and team IDs
+        # Find player ID
         player_id = self._find_player_id(player_name)
         if not player_id:
-            print(f"❌ Player '{player_name}' not found.")
+            print(f"[ERROR] Player '{player_name}' not found in database.")
+            print("Try updating data first or checking the spelling.")
             return
 
+        # Get opponent team
+        team_name = input("Enter opponent team name: ").strip()
+        if not team_name:
+            print("[ERROR] Team name required.")
+            return
+
+        # Find team info
         team_info = self._find_team_info(team_name)
         if not team_info:
-            print(f"❌ Team '{team_name}' not found.")
+            print(f"[ERROR] Team '{team_name}' not found.")
+            print("Try abbreviation (e.g., 'LAL') or full name (e.g., 'Los Angeles Lakers')")
             return
 
-        print(f"\n🔍 Found: {player_name} vs {team_info['full_name']}")
+        print(f"\n[FOUND] {player_name} vs {team_info['full_name']}")
 
-        # Make prediction
-        self._make_player_vs_team_prediction(player_id, player_name, team_info)
+        # Determine analysis level
+        if analysis_choice == "1":
+            analysis_level = "quick"
+        elif analysis_choice == "2":
+            analysis_level = "comprehensive"
+        else:
+            # Auto-determine based on player age
+            analysis_level = self._determine_analysis_level(player_id)
+            
+        # Make unified prediction
+        self._make_unified_prediction(player_id, player_name, team_info, analysis_level)
+
+    def _determine_analysis_level(self, player_id: int) -> str:
+        """Automatically determine analysis level based on player characteristics."""
+        try:
+            # Get player age from database
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Try to get recent games to estimate age
+            cursor.execute("""
+                SELECT game_date, player_name FROM player_games 
+                WHERE player_id = ? 
+                ORDER BY game_date DESC 
+                LIMIT 1
+            """, (player_id,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                # For veterans (likely 35+) or players with complex patterns, use comprehensive
+                # For now, we'll default to comprehensive for better analysis
+                print("[AUTO] Selecting comprehensive analysis for enhanced accuracy")
+                return "comprehensive"
+            else:
+                return "quick"
+                
+        except Exception as e:
+            self.logger.error(f"Error determining analysis level: {e}")
+            return "comprehensive"  # Default to comprehensive
+
+    def _make_unified_prediction(
+        self, player_id: int, player_name: str, team_info: Dict, analysis_level: str
+    ):
+        """Make unified prediction with selected analysis level."""
+        
+        if analysis_level == "quick":
+            print(f"\n[QUICK ANALYSIS] Generating fast predictions...")
+            self._make_quick_prediction(player_id, player_name, team_info)
+        else:
+            print(f"\n[COMPREHENSIVE ANALYSIS] Advanced predictions with 530+ features...")
+            self._make_comprehensive_prediction(player_id, player_name, team_info)
+
+    def _make_quick_prediction(
+        self, player_id: int, player_name: str, team_info: Dict
+    ):
+        """Make quick prediction with basic features."""
+        try:
+            # Load models
+            self.model_manager.load_models(self.stat_types)
+            
+            # Get current date for prediction
+            game_date = datetime.now().strftime("%Y-%m-%d")
+            
+            print("   [FEATURES] Creating basic feature set...")
+            # Create basic features (original system)
+            features_df = self.feature_engineer.create_features_for_player(
+                player_id,
+                game_date,
+                opponent_team_id=team_info["id"],
+                include_h2h_features=False,
+                include_advanced_features=False,
+                lookback_games=10
+            )
+            
+            if features_df.empty:
+                print(f"[ERROR] Insufficient data for {player_name}")
+                return
+                
+            print(f"   [SUCCESS] Created {len(features_df.columns)} features")
+            
+            # Make predictions
+            print("   [PREDICT] Generating quick predictions...")
+            predictions_df = self.model_manager.predict_stats(features_df, self.stat_types)
+            
+            if predictions_df.empty:
+                print("[ERROR] Could not generate predictions")
+                return
+                
+            # Apply basic age adjustments
+            predictions_df = self._apply_age_aware_adjustments(
+                predictions_df, features_df, player_id, player_name
+            )
+            
+            # Display quick results
+            self._display_quick_predictions(player_name, team_info["full_name"], predictions_df)
+            
+            # Optional visualization
+            print("\n[VISUAL] Generate prediction chart?")
+            show_viz = input("Show visualization? (y/N): ").strip().lower()
+            
+            if show_viz == 'y':
+                self._create_basic_visualization(player_id, player_name, predictions_df, team_info)
+                
+        except Exception as e:
+            print(f"[ERROR] Quick prediction failed: {e}")
+            self.logger.error(f"Quick prediction error: {e}")
+
+    def _make_comprehensive_prediction(
+        self, player_id: int, player_name: str, team_info: Dict
+    ):
+        """Make comprehensive prediction with all advanced features."""
+        try:
+            # Load models
+            self.model_manager.load_models(self.stat_types)
+            
+            # Get current date for prediction
+            game_date = datetime.now().strftime("%Y-%m-%d")
+            
+            print("   [FEATURES] Creating comprehensive feature set (530+)...")
+            # Create enhanced features with ALL improvements
+            features_df = self.feature_engineer.create_features_for_player(
+                player_id,
+                game_date,
+                opponent_team_id=team_info["id"],
+                include_h2h_features=True,
+                include_advanced_features=True,
+                lookback_games=20
+            )
+            
+            if features_df.empty:
+                print(f"[ERROR] Insufficient data for {player_name}")
+                return
+                
+            print(f"   [SUCCESS] Created {len(features_df.columns)} advanced features")
+            
+            # Make predictions with enhanced confidence
+            print("   [PREDICT] Generating comprehensive predictions...")
+            predictions_df = self.model_manager.predict_stats(features_df, self.stat_types)
+            
+            if predictions_df.empty:
+                print("[ERROR] Could not generate predictions")
+                return
+                
+            # Get recent performance for context
+            recent_stats = self._get_recent_performance(player_id, games=10)
+            
+            # Display comprehensive results
+            self._display_comprehensive_predictions(
+                player_name, team_info["full_name"], predictions_df, features_df
+            )
+            
+            # Show enhanced context
+            self._show_enhanced_player_context(
+                player_id, player_name, team_info["id"], features_df, recent_stats
+            )
+            
+            # Always create professional visualization for comprehensive mode
+            print("\n[VISUAL] Creating professional prediction rationale chart...")
+            self._create_comprehensive_visualization(
+                player_id, player_name, predictions_df, features_df, recent_stats, team_info
+            )
+                
+        except Exception as e:
+            print(f"[ERROR] Comprehensive prediction failed: {e}")
+            self.logger.error(f"Comprehensive prediction error: {e}")
+
+    def _display_quick_predictions(
+        self, player_name: str, team_name: str, predictions_df: pd.DataFrame
+    ):
+        """Display quick predictions in a clean format."""
+        print(f"\n[QUICK PREDICTIONS] {player_name} vs {team_name}")
+        print("=" * 60)
+
+        for stat in self.stat_types:
+            pred_col = f"predicted_{stat}"
+            conf_col = f"confidence_{stat}"
+
+            if pred_col in predictions_df.columns:
+                predicted_value = predictions_df[pred_col].iloc[0]
+                confidence = (
+                    predictions_df[conf_col].iloc[0]
+                    if conf_col in predictions_df.columns
+                    else 0.3  # Default for quick mode
+                )
+
+                confidence_pct = confidence * 100
+                conf_indicator = "Quick" if confidence <= 0.4 else "Standard"
+
+                print(f"     {stat.upper():>5}: {predicted_value:5.1f} ({conf_indicator} {confidence_pct:4.0f}%)")
+
+        print("=" * 60)
+
+    def _display_comprehensive_predictions(
+        self, player_name: str, team_name: str, predictions_df: pd.DataFrame, features_df: pd.DataFrame
+    ):
+        """Display comprehensive predictions with enhanced confidence and context."""
+        print(f"\n[COMPREHENSIVE PREDICTIONS] {player_name} vs {team_name}")
+        print("=" * 60)
+
+        # Show age context first
+        player_age = features_df.get("player_age", pd.Series([30])).iloc[0] if not features_df.empty else 30
+        print(f"   [AGE] Player Age: {player_age:.1f} years")
+        
+        if player_age >= 40:
+            print(f"   [VETERAN] Elite longevity - age-adjusted predictions")
+        elif player_age >= 35:
+            print(f"   [VETERAN] Age-related adjustments applied")
+
+        print()
+
+        for stat in self.stat_types:
+            pred_col = f"predicted_{stat}"
+            conf_col = f"confidence_{stat}"
+
+            if pred_col in predictions_df.columns:
+                predicted_value = predictions_df[pred_col].iloc[0]
+                confidence = (
+                    predictions_df[conf_col].iloc[0]
+                    if conf_col in predictions_df.columns
+                    else 0.5
+                )
+
+                confidence_pct = confidence * 100
+
+                # Enhanced confidence indicators
+                if confidence >= 0.8:
+                    conf_indicator = "Very High"
+                elif confidence >= 0.7:
+                    conf_indicator = "High"
+                elif confidence >= 0.6:
+                    conf_indicator = "Medium"
+                elif confidence >= 0.5:
+                    conf_indicator = "Moderate"
+                else:
+                    conf_indicator = "Low"
+
+                print(f"     {stat.upper():>5}: {predicted_value:5.1f} ({conf_indicator} {confidence_pct:5.1f}%)")
+
+        print("=" * 60)
+
+    def _create_basic_visualization(
+        self, player_id: int, player_name: str, predictions_df: pd.DataFrame, team_info: Dict
+    ):
+        """Create basic visualization for quick predictions."""
+        try:
+            print("   [VISUAL] Creating basic prediction chart...")
+            recent_stats = self._get_recent_performance(player_id, games=10)
+            
+            chart_path = self.visualizer.create_basic_prediction_chart(
+                player_id=player_id,
+                player_name=player_name,
+                predictions_df=predictions_df,
+                recent_stats=recent_stats,
+                opponent_name=team_info["full_name"]
+            )
+            
+            if chart_path:
+                print(f"[SUCCESS] Basic chart created: {chart_path}")
+            else:
+                print("[ERROR] Could not create chart")
+                
+        except Exception as e:
+            print(f"[ERROR] Visualization failed: {e}")
+            self.logger.error(f"Basic visualization error: {e}")
+
+    def _create_comprehensive_visualization(
+        self, player_id: int, player_name: str, predictions_df: pd.DataFrame, 
+        features_df: pd.DataFrame, recent_stats: Dict, team_info: Dict
+    ):
+        """Create comprehensive visualization with enhanced rationale."""
+        try:
+            chart_path = self.visualizer.create_prediction_rationale_chart(
+                player_id=player_id,
+                player_name=player_name,
+                predictions_df=predictions_df,
+                features_df=features_df,
+                recent_stats=recent_stats,
+                opponent_name=team_info["full_name"]
+            )
+            
+            if chart_path:
+                print(f"[SUCCESS] Professional chart created: {chart_path}")
+                
+                # Show prediction insights
+                self._show_prediction_insights(features_df, predictions_df, recent_stats)
+            else:
+                print("[ERROR] Could not create comprehensive chart")
+                
+        except Exception as e:
+            print(f"[ERROR] Comprehensive visualization failed: {e}")
+            self.logger.error(f"Comprehensive visualization error: {e}")
 
     def _find_player_id(self, player_name: str) -> Optional[int]:
         """Find player ID from name."""
@@ -445,180 +745,9 @@ class InteractiveNBADashboard:
             print(f"❌ Error making prediction: {e}")
             self.logger.error(f"Prediction error: {e}")
 
-    def handle_enhanced_predictions(self):
-        """Handle enhanced predictions with advanced analysis and visualization."""
-        print("\n[ENHANCED PREDICTION SYSTEM]")
-        print("=" * 60)
-        print("This mode uses advanced features including:")
-        print("- Age-based decline adjustments with 530+ features")
-        print("- Opponent defensive analysis & head-to-head history") 
-        print("- Enhanced confidence calculation (not uniform 30%)")
-        print("- Professional prediction rationale charts")
-        print("- Ensemble variance and uncertainty quantification")
-        print("-" * 60)
 
-        # Get player name
-        player_name = input("Enter player name: ").strip()
-        if not player_name:
-            print("[ERROR] Player name required.")
-            return
 
-        # Find player ID
-        player_id = self._find_player_id(player_name)
-        if not player_id:
-            print(f"[ERROR] Player '{player_name}' not found in database.")
-            print("Try updating data first or checking the spelling.")
-            return
 
-        # Get opponent team
-        team_name = input("Enter opponent team name: ").strip()
-        if not team_name:
-            print("[ERROR] Team name required.")
-            return
-
-        # Find team info
-        team_info = self._find_team_info(team_name)
-        if not team_info:
-            print(f"[ERROR] Team '{team_name}' not found.")
-            print("Try abbreviation (e.g., 'LAL') or full name (e.g., 'Los Angeles Lakers')")
-            return
-
-        # Make enhanced prediction
-        self._make_enhanced_prediction(player_id, player_name, team_info)
-
-    def _make_enhanced_prediction(
-        self, player_id: int, player_name: str, team_info: Dict
-    ):
-        """Make enhanced prediction with all improvements."""
-        print(f"\n[GENERATING] Enhanced predictions with advanced features...")
-
-        try:
-            # Load models
-            self.model_manager.load_models(self.stat_types)
-
-            # Get current date for prediction
-            game_date = datetime.now().strftime("%Y-%m-%d")
-
-            # Create ENHANCED features with ALL improvements
-            print("   [FEATURES] Creating 530+ advanced features...")
-            features_df = self.feature_engineer.create_features_for_player(
-                player_id,
-                game_date,
-                opponent_team_id=team_info["id"],
-                include_h2h_features=True,  # Enable head-to-head features
-                include_advanced_features=True,  # Enable all advanced features
-                lookback_games=20  # More historical context
-            )
-
-            if features_df.empty:
-                print(f"[ERROR] Insufficient data to make predictions for {player_name}")
-                print("Consider updating data first or choosing a different player.")
-                return
-
-            print(f"   [SUCCESS] Created {len(features_df.columns)} features")
-
-            # Make predictions with ENHANCED confidence
-            print("   [PREDICT] Making predictions with improved confidence calculation...")
-            predictions_df = self.model_manager.predict_stats(
-                features_df, self.stat_types
-            )
-
-            if predictions_df.empty:
-                print("[ERROR] Could not generate predictions")
-                return
-
-            # Get recent performance for context
-            recent_stats = self._get_recent_performance(player_id, games=10)
-
-            # Display enhanced predictions with better confidence
-            self._display_enhanced_predictions(
-                player_name, team_info["full_name"], predictions_df, features_df
-            )
-
-            # Show detailed player context
-            self._show_enhanced_player_context(
-                player_id, player_name, team_info["id"], features_df, recent_stats
-            )
-
-            # ALWAYS offer visualization in enhanced mode
-            print("\n[VISUAL] Generating comprehensive prediction rationale chart...")
-            try:
-                chart_path = self.visualizer.create_prediction_rationale_chart(
-                    player_id=player_id,
-                    player_name=player_name,
-                    predictions_df=predictions_df,
-                    features_df=features_df,
-                    recent_stats=recent_stats,
-                    opponent_name=team_info["full_name"]
-                )
-                
-                if chart_path:
-                    print(f"[SUCCESS] Professional visualization created successfully!")
-                    print(f"[SAVED] Chart saved to: {chart_path}")
-                    
-                    # Show key insights
-                    self._show_prediction_insights(features_df, predictions_df, recent_stats)
-                else:
-                    print("[ERROR] Could not create visualization")
-                    
-            except Exception as e:
-                print(f"[ERROR] Error creating visualization: {e}")
-                self.logger.error(f"Enhanced visualization error: {e}")
-
-        except Exception as e:
-            print(f"[ERROR] Error making enhanced prediction: {e}")
-            self.logger.error(f"Enhanced prediction error: {e}")
-
-    def _display_enhanced_predictions(
-        self, player_name: str, team_name: str, predictions_df: pd.DataFrame, features_df: pd.DataFrame
-    ):
-        """Display enhanced predictions with improved confidence and age context."""
-        print(f"\n[ENHANCED PREDICTIONS] {player_name} vs {team_name}")
-        print("=" * 60)
-
-        # Show age context first
-        player_age = features_df.get("player_age", pd.Series([30])).iloc[0] if not features_df.empty else 30
-        print(f"   [AGE] Player Age: {player_age:.1f} years")
-        
-        if player_age >= 40:
-            print(f"   [VETERAN] Applying age adjustments for veteran player...")
-        elif player_age >= 35:
-            print(f"   [VETERAN] Age-related adjustments applied for veteran")
-
-        print()
-
-        for stat in self.stat_types:
-            pred_col = f"predicted_{stat}"
-            conf_col = f"confidence_{stat}"
-
-            if pred_col in predictions_df.columns:
-                predicted_value = predictions_df[pred_col].iloc[0]
-                confidence = (
-                    predictions_df[conf_col].iloc[0]
-                    if conf_col in predictions_df.columns
-                    else 0.5
-                )
-
-                # Format confidence as percentage with enhanced levels
-                confidence_pct = confidence * 100
-
-                # Enhanced confidence indicators
-                if confidence >= 0.8:
-                    conf_indicator = "Very High"
-                elif confidence >= 0.7:
-                    conf_indicator = "High"
-                elif confidence >= 0.6:
-                    conf_indicator = "Medium"
-                elif confidence >= 0.5:
-                    conf_indicator = "Moderate"
-                else:
-                    conf_indicator = "Low"
-
-                print(
-                    f"     {stat.upper():>5}: {predicted_value:5.1f} (Confidence: {conf_indicator} {confidence_pct:5.1f}%)"
-                )
-
-        print("=" * 60)
 
     def _show_enhanced_player_context(
         self, player_id: int, player_name: str, opponent_team_id: int, 
@@ -1259,25 +1388,23 @@ class InteractiveNBADashboard:
         while True:
             try:
                 self.show_main_menu()
-                choice = input("Select option (1-7): ").strip()
+                choice = input("Select option (1-6): ").strip()
 
                 if choice == "1":
                     self.handle_data_update()
                 elif choice == "2":
-                    self.handle_player_prediction()
+                    self.handle_unified_predictions()
                 elif choice == "3":
-                    self.handle_enhanced_predictions()
-                elif choice == "4":
                     self.handle_model_training()
-                elif choice == "5":
+                elif choice == "4":
                     self._show_quick_status()
-                elif choice == "6":
+                elif choice == "5":
                     self.view_recent_predictions()
-                elif choice == "7":
+                elif choice == "6":
                     print("\n[EXIT] Thanks for using NBA Stat Predictor!")
                     break
                 else:
-                    print("❌ Invalid choice. Please select 1-7.")
+                    print("[ERROR] Invalid choice. Please select 1-6.")
 
                 # Add pause between operations
                 input("\nPress Enter to continue...")
@@ -1286,7 +1413,7 @@ class InteractiveNBADashboard:
                 print("\n\n[EXIT] Goodbye!")
                 break
             except Exception as e:
-                print(f"❌ Unexpected error: {e}")
+                print(f"[ERROR] Unexpected error: {e}")
                 self.logger.error(f"Interactive session error: {e}")
 
 

@@ -398,6 +398,105 @@ class PredictionVisualizer:
         except Exception as e:
             logger.error(f"Error plotting statistical context: {e}")
 
+    def create_basic_prediction_chart(
+        self,
+        player_id: int,
+        player_name: str,
+        predictions_df: pd.DataFrame,
+        recent_stats: Dict,
+        opponent_name: str = "",
+        save_path: Optional[str] = None
+    ) -> str:
+        """Create a simple, clean prediction chart for quick mode."""
+        
+        self.setup_plotting_style()
+        
+        # Create figure with clean layout
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        
+        # Main title
+        title = f"Quick Prediction: {player_name}"
+        if opponent_name:
+            title += f" vs {opponent_name}"
+        fig.suptitle(title, fontsize=14, fontweight='bold')
+        
+        # 1. Predictions Bar Chart (left)
+        stats = ['pts', 'reb', 'ast', 'stl', 'blk']
+        stat_labels = ['Points', 'Rebounds', 'Assists', 'Steals', 'Blocks']
+        
+        predictions = []
+        confidences = []
+        
+        for stat in stats:
+            pred_col = f"predicted_{stat}"
+            conf_col = f"confidence_{stat}"
+            
+            if pred_col in predictions_df.columns:
+                predictions.append(predictions_df[pred_col].iloc[0])
+                confidences.append(predictions_df[conf_col].iloc[0] if conf_col in predictions_df.columns else 0.3)
+            else:
+                predictions.append(0)
+                confidences.append(0.3)
+        
+        # Color bars by confidence level
+        colors = ['#ff4444' if c < 0.4 else '#ffaa00' if c < 0.6 else '#44aa44' for c in confidences]
+        
+        bars = ax1.bar(stat_labels, predictions, color=colors, alpha=0.7, edgecolor='black', linewidth=1)
+        ax1.set_title("Predicted Stats", fontweight='bold')
+        ax1.set_ylabel("Value")
+        ax1.grid(True, alpha=0.3, axis='y')
+        
+        # Add value labels on bars
+        for bar, conf in zip(bars, confidences):
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2, height + 0.1,
+                    f'{height:.1f}\n({conf*100:.0f}%)', ha='center', va='bottom', fontsize=9)
+        
+        # 2. Recent Form Comparison (right)
+        if recent_stats:
+            recent_values = [recent_stats.get(f"{stat}_avg", 0) for stat in stats]
+            
+            x = np.arange(len(stats))
+            width = 0.35
+            
+            bars1 = ax2.bar(x - width/2, recent_values, width, label='Recent (10 games)', 
+                           alpha=0.7, color='lightblue', edgecolor='black')
+            bars2 = ax2.bar(x + width/2, predictions, width, label='Prediction', 
+                           alpha=0.7, color='orange', edgecolor='black')
+            
+            ax2.set_title("Prediction vs Recent Form", fontweight='bold')
+            ax2.set_ylabel("Value")
+            ax2.set_xticks(x)
+            ax2.set_xticklabels(stat_labels)
+            ax2.legend()
+            ax2.grid(True, alpha=0.3, axis='y')
+            
+        else:
+            ax2.text(0.5, 0.5, 'No recent data available', 
+                    ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title("Recent Form Not Available")
+        
+        # Add confidence legend
+        legend_elements = [
+            plt.Rectangle((0,0),1,1, color='#ff4444', alpha=0.7, label='Low Confidence (<40%)'),
+            plt.Rectangle((0,0),1,1, color='#ffaa00', alpha=0.7, label='Medium Confidence (40-60%)'),
+            plt.Rectangle((0,0),1,1, color='#44aa44', alpha=0.7, label='High Confidence (>60%)')
+        ]
+        ax1.legend(handles=legend_elements, loc='upper right', fontsize=8)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+            return save_path
+        else:
+            # Save to default location
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_name = player_name.replace(' ', '_').replace('.', '')
+            default_path = f"plots/basic_prediction_{safe_name}_{timestamp}.png"
+            plt.savefig(default_path, dpi=300, bbox_inches='tight', facecolor='white')
+            return default_path
+
     def show_prediction_rationale(
         self,
         player_id: int,
