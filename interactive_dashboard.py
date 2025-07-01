@@ -620,16 +620,34 @@ class InteractiveNBADashboard:
             if not recent_df.empty:
                 print(f"\n📊 {player_name}'s Recent Performance (Last 10 games):")
                 
-                # Calculate averages
+                # Calculate averages with validation
                 recent_stats = {}
                 for stat in ["pts", "reb", "ast", "stl", "blk"]:
                     if stat in recent_df.columns:
-                        recent_stats[stat] = recent_df[stat].mean()
+                        # Validate data before calculation
+                        stat_data = recent_df[stat].dropna()  # Remove null values
+                        if len(stat_data) > 0:
+                            avg_value = stat_data.mean()
+                            # Sanity check for unrealistic averages
+                            if self._validate_stat_average(stat, avg_value):
+                                recent_stats[stat] = avg_value
+                            else:
+                                logger.warning(f"Unrealistic average for {stat}: {avg_value:.1f}")
+                                recent_stats[stat] = stat_data.median()  # Use median as fallback
 
                 # Display recent averages
                 for stat in ["pts", "reb", "ast", "stl", "blk"]:
                     if stat in recent_stats:
-                        print(f"   {stat.upper():>5}: {recent_stats[stat]:5.1f} avg")
+                        avg_val = recent_stats[stat]
+                        print(f"   {stat.upper():>5}: {avg_val:5.1f} avg")
+                        
+                        # Add context for exceptional values
+                        if stat == "ast" and avg_val > 15:
+                            print(f"     ⚠️  Exceptionally high assist average")
+                        elif stat == "stl" and avg_val > 3:
+                            print(f"     ⚠️  Exceptionally high steal average")
+                        elif stat == "pts" and avg_val > 35:
+                            print(f"     ⚠️  Exceptionally high scoring average")
 
                 # Age-related insights
                 age = self._get_player_age_from_db(player_id)
@@ -675,6 +693,23 @@ class InteractiveNBADashboard:
         except Exception as e:
             print(f"   ⚠️ Could not load player context: {e}")
             self.logger.error(f"Error showing player context: {e}")
+
+    def _validate_stat_average(self, stat: str, value: float) -> bool:
+        """Validate that a statistical average is reasonable."""
+        # Define reasonable ranges for averages (per game)
+        reasonable_ranges = {
+            'pts': (0, 40),    # 40 ppg would be historically exceptional
+            'reb': (0, 20),    # 20 rpg would be historically exceptional  
+            'ast': (0, 15),    # 15 apg would be historically exceptional
+            'stl': (0, 4),     # 4 spg would be historically exceptional
+            'blk': (0, 5),     # 5 bpg would be historically exceptional
+        }
+        
+        if stat in reasonable_ranges:
+            min_val, max_val = reasonable_ranges[stat]
+            return min_val <= value <= max_val
+        
+        return True  # If not in our validation list, assume it's okay
 
     def _get_player_age_from_db(self, player_id: int) -> Optional[float]:
         """Get player age if available in features."""

@@ -587,3 +587,125 @@ class NBADataCollector:
             1628370,  # Deandre Ayton
         ]
         return star_players
+
+    def store_player_game_data(self, game_data: Dict) -> bool:
+        """Store individual game data for a player."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Data validation - check for unrealistic values
+            validated_data = self._validate_game_data(game_data)
+            if not validated_data:
+                logger.warning(f"Invalid game data rejected for player {game_data.get('player_id', 'unknown')}")
+                return False
+
+            # Check if this game already exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM player_games WHERE game_id = ? AND player_id = ?",
+                (game_data["game_id"], game_data["player_id"]),
+            )
+
+            if cursor.fetchone()[0] > 0:
+                logger.debug(f"Game data already exists for player {game_data['player_id']}")
+                conn.close()
+                return True
+
+            # Insert new game data
+            columns = list(game_data.keys())
+            placeholders = ", ".join(["?" for _ in columns])
+            values = list(game_data.values())
+
+            query = f"""
+                INSERT INTO player_games ({', '.join(columns)})
+                VALUES ({placeholders})
+            """
+
+            cursor.execute(query, values)
+            conn.commit()
+            conn.close()
+
+            logger.debug(f"Stored game data for player {game_data['player_id']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error storing game data: {e}")
+            return False
+
+    def _validate_game_data(self, game_data: Dict) -> bool:
+        """Validate game data for realistic values."""
+        try:
+            # Check for required fields
+            required_fields = ['player_id', 'game_id', 'pts', 'reb', 'ast']
+            for field in required_fields:
+                if field not in game_data or game_data[field] is None:
+                    logger.warning(f"Missing required field: {field}")
+                    return False
+
+            # Validate statistical ranges (NBA records and reasonable limits)
+            validations = {
+                'pts': (0, 100),      # Kobe's 81 is highest in modern era
+                'reb': (0, 50),       # Wilt had 55, but 50 is reasonable modern limit
+                'ast': (0, 30),       # Scott Skiles had 30, but that's the record
+                'stl': (0, 15),       # 15 is extremely high but theoretically possible
+                'blk': (0, 20),       # 20 is very high but possible for centers
+                'tov': (0, 15),       # 15 turnovers is very high
+                'pf': (0, 6),         # 6 fouls is maximum before fouling out
+                'fgm': (0, 50),       # 50 field goals made is extremely high
+                'fga': (0, 60),       # 60 attempts is very high
+                'fg3m': (0, 20),      # Klay had 14, but 20 is reasonable upper limit
+                'fg3a': (0, 30),      # 30 three-point attempts is very high
+                'ftm': (0, 30),       # 30 free throws made is high
+                'fta': (0, 35),       # 35 free throw attempts is high
+                'min': (0, 60),       # 60 minutes is maximum (OT games)
+            }
+
+            for stat, (min_val, max_val) in validations.items():
+                if stat in game_data:
+                    value = game_data[stat]
+                    if not isinstance(value, (int, float)):
+                        try:
+                            value = float(value)
+                        except:
+                            logger.warning(f"Non-numeric value for {stat}: {value}")
+                            return False
+
+                    if not (min_val <= value <= max_val):
+                        logger.warning(f"Unrealistic {stat} value: {value} (should be {min_val}-{max_val})")
+                        return False
+
+            # Validate percentage fields
+            percentage_fields = ['fg_pct', 'fg3_pct', 'ft_pct']
+            for field in percentage_fields:
+                if field in game_data and game_data[field] is not None:
+                    value = game_data[field]
+                    if not isinstance(value, (int, float)):
+                        try:
+                            value = float(value)
+                        except:
+                            continue  # Skip validation if can't convert
+                    
+                    if not (0.0 <= value <= 1.0):
+                        logger.warning(f"Invalid percentage for {field}: {value}")
+                        return False
+
+            # Cross-validation (made shots can't exceed attempted shots)
+            cross_validations = [
+                ('fgm', 'fga'),
+                ('fg3m', 'fg3a'),
+                ('ftm', 'fta')
+            ]
+
+            for made_field, attempted_field in cross_validations:
+                if made_field in game_data and attempted_field in game_data:
+                    made = game_data[made_field] or 0
+                    attempted = game_data[attempted_field] or 0
+                    if made > attempted:
+                        logger.warning(f"Made shots ({made}) exceed attempted ({attempted}) for {made_field}/{attempted_field}")
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating game data: {e}")
+            return False
