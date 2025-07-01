@@ -745,10 +745,6 @@ class InteractiveNBADashboard:
             print(f"❌ Error making prediction: {e}")
             self.logger.error(f"Prediction error: {e}")
 
-
-
-
-
     def _show_enhanced_player_context(
         self, player_id: int, player_name: str, opponent_team_id: int, 
         features_df: pd.DataFrame, recent_stats: Dict
@@ -915,8 +911,29 @@ class InteractiveNBADashboard:
                 LIMIT ?
             """
             
-            df = pd.read_sql_query(query, conn, params=(player_id, games))
-            conn.close()
+            # Pull extra games (double the requested) to account for DNP filtering
+            df = pd.read_sql_query(query, conn, params=(player_id, games * 2))
+            # Filter out games where the player barely played ( <5 minutes) or recorded no stats
+            if 'min' in df.columns:
+                def _convert_min(val):
+                    if isinstance(val, (int, float)):
+                        return float(val)
+                    try:
+                        parts = str(val).split(":")
+                        if len(parts) == 2:
+                            return int(parts[0]) + int(parts[1]) / 60
+                        return float(val)
+                    except Exception:
+                        return 0.0
+
+                df['min_num'] = df['min'].apply(_convert_min)
+                df = df[df['min_num'] >= 5]
+                df = df.drop(columns=['min_num'])
+            else:
+                df = df[df['pts'] > 0]
+
+            # Keep only the most recent `games` valid entries
+            df = df.head(games)
             
             if df.empty:
                 return {}

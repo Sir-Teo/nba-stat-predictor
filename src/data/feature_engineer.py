@@ -27,6 +27,7 @@ PLAYER_BIRTHDATES = {
     203954: "1994-03-16",  # Joel Embiid
     201566: "1988-11-12",  # Russell Westbrook
     203081: "1990-07-15",  # Damian Lillard
+    201142: "1988-09-29",  # Kevin Durant
 }
 
 

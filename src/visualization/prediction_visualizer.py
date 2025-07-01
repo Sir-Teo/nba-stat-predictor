@@ -117,17 +117,37 @@ class PredictionVisualizer:
         try:
             conn = sqlite3.connect(self.db_path)
             
-            # Get last 20 games
+            # Pull a wider window (last 40 games) and then filter out DNP / garbage-time
             query = """
-                SELECT game_date, pts, reb, ast, stl, blk 
+                SELECT game_date, pts, reb, ast, stl, blk, 
+                       COALESCE(min, 0) AS min_played
                 FROM player_games 
                 WHERE player_id = ?
                 ORDER BY game_date DESC
-                LIMIT 20
+                LIMIT 40
             """
             
             df = pd.read_sql_query(query, conn, params=(player_id,))
             conn.close()
+            
+            # Convert minutes to numeric if they are in HH:MM format
+            def _convert_min(val):
+                if isinstance(val, (int, float)):
+                    return float(val)
+                try:
+                    parts = str(val).split(":")
+                    if len(parts) == 2:
+                        return int(parts[0]) + int(parts[1]) / 60
+                    return float(val)
+                except Exception:
+                    return 0.0
+
+            df['min_played_num'] = df['min_played'].apply(_convert_min)
+            df = df[df['min_played_num'] >= 5]
+            df = df.drop(columns=['min_played_num'])
+            
+            # Retain the most recent 20 valid games
+            df = df.head(20)
             
             if df.empty:
                 ax.text(0.5, 0.5, 'No recent data available', 
@@ -161,8 +181,9 @@ class PredictionVisualizer:
             if len(df) > 3:
                 z_pts = np.polyfit(x, df['pts'], 1)
                 p_pts = np.poly1d(z_pts)
-                trend_direction = "↗" if z_pts[0] > 0.1 else "↘" if z_pts[0] < -0.1 else "→"
-                trend_text = f"Points Trend: {z_pts[0]:+.1f}/game {trend_direction}"
+                # Use simple text indicators instead of unicode arrows to avoid missing glyph warnings
+                trend_direction = "up" if z_pts[0] > 0.1 else "down" if z_pts[0] < -0.1 else "flat"
+                trend_text = f"Points Trend: {z_pts[0]:+.1f}/game ({trend_direction})"
                 ax.plot(x, p_pts(x), '--', alpha=0.8, color=colors['pts'], 
                        linewidth=2, label=trend_text)
             
