@@ -15,14 +15,14 @@ try:
     from interactive_dashboard import main
 
     if __name__ == "__main__":
-        print("🏀 Launching Interactive NBA Stat Predictor Dashboard...")
+        print("[LAUNCH] Starting Interactive NBA Stat Predictor Dashboard...")
         main()
 
 except ImportError as e:
-    print(f"❌ Error importing dashboard: {e}")
+    print(f"[ERROR] Error importing dashboard: {e}")
     print("Make sure all dependencies are installed:")
     print("pip install -r requirements.txt")
 
 except Exception as e:
-    print(f"❌ Error running dashboard: {e}")
+    print(f"[ERROR] Error running dashboard: {e}")
     print("Check that the NBA API is accessible and try again.")

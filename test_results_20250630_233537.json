@@ -1,0 +1,160 @@
+{
+  "confidence": {
+    "status": "success",
+    "avg_confidence": 21.66211546904938,
+    "confidence_variation": 0.002802495818417002,
+    "results": {
+      "pts": {
+        "prediction": 21.62561851531702,
+        "confidence": 0.22000000000000003,
+        "confidence_range": "0.22 - 0.22"
+      },
+      "reb": {
+        "prediction": 6.206310347213767,
+        "confidence": 0.22000000000000003,
+        "confidence_range": "0.22 - 0.22"
+      },
+      "ast": {
+        "prediction": 6.010746655553454,
+        "confidence": 0.21354812265695347,
+        "confidence_range": "0.21 - 0.21"
+      },
+      "stl": {
+        "prediction": 1.433236535229399,
+        "confidence": 0.21509885858757408,
+        "confidence_range": "0.22 - 0.22"
+      },
+      "blk": {
+        "prediction": 0.9095915069181641,
+        "confidence": 0.21445879220794148,
+        "confidence_range": "0.21 - 0.21"
+      }
+    }
+  },
+  "features": {
+    "status": "success",
+    "analysis": {
+      "age_features": [
+        "player_age",
+        "age_decline_factor",
+        "high_usage_games",
+        "low_usage_games"
+      ],
+      "opponent_features": [
+        "opp_def_efficiency",
+        "opp_reb_def_rate",
+        "opp_def_fg_pct",
+        "opp_def_3pt_pct",
+        "opp_steal_rate",
+        "opp_block_rate",
+        "opp_pts_def_relative",
+        "opp_fg_def_relative",
+        "opp_team_pace",
+        "opp_team_offensive_rating",
+        "opp_team_ball_movement",
+        "opp_team_momentum",
+        "opp_team_consistency",
+        "opp_recent_avg_pts",
+        "opp_def_pts_allowed",
+        "opp_def_reb_allowed",
+        "opp_def_ast_allowed",
+        "opp_def_stl_allowed",
+        "opp_def_blk_allowed",
+        "opp_def_rating_pts",
+        "opp_def_rating_reb",
+        "opp_def_rating_ast",
+        "opp_team_fg_pct",
+        "opp_team_3pt_pct",
+        "opp_team_ft_pct",
+        "opp_high_scoring_rate",
+        "opp_low_scoring_rate",
+        "opponent_team_id"
+      ],
+      "h2h_features": [
+        "h2h_pts_avg",
+        "h2h_reb_avg",
+        "h2h_ast_avg",
+        "h2h_games_count",
+        "has_h2h_history"
+      ],
+      "total_features": 530,
+      "feature_quality": "good"
+    },
+    "sample_features": [
+      "player_age",
+      "is_rookie",
+      "is_young",
+      "is_prime",
+      "is_veteran",
+      "is_aging_vet",
+      "age_decline_factor",
+      "recent_form_weight",
+      "years_experience",
+      "is_superhuman_longevity"
+    ]
+  },
+  "visualization": {
+    "status": "success",
+    "chart_path": "plots/prediction_rationale_LeBron_James_20250630_233536.png",
+    "file_size_kb": 813.349609375,
+    "no_unicode_errors": true
+  },
+  "end_to_end": {
+    "status": "success",
+    "successful_predictions": 3,
+    "total_tests": 3,
+    "results": {
+      "LeBron James": {
+        "predictions": {
+          "predicted_pts": 21.62561851531702,
+          "confidence_pts": 0.5740484443370044,
+          "predicted_reb": 6.206310347213767,
+          "confidence_reb": 0.6447663409235026,
+          "predicted_ast": 6.010746655553454,
+          "confidence_ast": 0.6032358009692079,
+          "predicted_stl": 1.433236535229399,
+          "confidence_stl": 0.5807082166910209,
+          "predicted_blk": 0.9095915069181641,
+          "confidence_blk": 0.6253749732353517
+        },
+        "avg_prediction": 7.23710071204636,
+        "avg_confidence": 60.56267552312175,
+        "status": "success"
+      },
+      "Nikola Jokic": {
+        "predictions": {
+          "predicted_pts": 23.084247824570618,
+          "confidence_pts": 0.5740484443370044,
+          "predicted_reb": 5.620687739731258,
+          "confidence_reb": 0.6447663409235026,
+          "predicted_ast": 6.315975046733248,
+          "confidence_ast": 0.6032358009692079,
+          "predicted_stl": 1.4465287538486096,
+          "confidence_stl": 0.5807082166910209,
+          "predicted_blk": 0.9117565116210373,
+          "confidence_blk": 0.6253749732353517
+        },
+        "avg_prediction": 7.475839175300955,
+        "avg_confidence": 60.56267552312175,
+        "status": "success"
+      },
+      "Luka Doncic": {
+        "predictions": {
+          "predicted_pts": 25.418910771331017,
+          "confidence_pts": 0.5740484443370044,
+          "predicted_reb": 6.716403529335695,
+          "confidence_reb": 0.6447663409235026,
+          "predicted_ast": 6.404683121973571,
+          "confidence_ast": 0.6032358009692079,
+          "predicted_stl": 1.2314005379964186,
+          "confidence_stl": 0.5807082166910209,
+          "predicted_blk": 0.78205395885822,
+          "confidence_blk": 0.6253749732353517
+        },
+        "avg_prediction": 8.110690383898985,
+        "avg_confidence": 60.56267552312175,
+        "status": "success"
+      }
+    }
+  }
+}

@@ -24,18 +24,23 @@ class PredictionVisualizer:
         self.setup_plotting_style()
 
     def setup_plotting_style(self):
-        """Set up consistent plotting style."""
+        """Set up professional plotting style without unicode characters."""
         plt.style.use('default')
-        sns.set_palette("husl")
         plt.rcParams.update({
-            'figure.figsize': (15, 10),
-            'font.size': 10,
+            'figure.figsize': (16, 12),
+            'font.size': 11,
             'axes.titlesize': 14,
             'axes.labelsize': 12,
             'xtick.labelsize': 10,
             'ytick.labelsize': 10,
-            'legend.fontsize': 11,
-            'figure.titlesize': 16
+            'legend.fontsize': 10,
+            'figure.titlesize': 16,
+            'axes.grid': True,
+            'grid.alpha': 0.3,
+            'axes.spines.top': False,
+            'axes.spines.right': False,
+            'figure.facecolor': 'white',
+            'axes.facecolor': 'white'
         })
 
     def create_prediction_rationale_chart(
@@ -48,50 +53,52 @@ class PredictionVisualizer:
         opponent_name: str = "",
         save_path: Optional[str] = None
     ) -> str:
-        """Create comprehensive rationale visualization for predictions."""
+        """Create comprehensive prediction rationale visualization."""
         
-        # Create figure with subplots
-        fig = plt.figure(figsize=(20, 14))
-        gs = fig.add_gridspec(3, 4, hspace=0.3, wspace=0.3)
-
+        self.setup_plotting_style()
+        
+        # Create figure with improved layout
+        fig = plt.figure(figsize=(18, 14))
+        gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 0.8], hspace=0.3, wspace=0.2)
+        
         # Main title
-        player_age = features_df.get("player_age", pd.Series([30])).iloc[0] if not features_df.empty else 30
-        fig.suptitle(
-            f"🏀 Prediction Rationale: {player_name} vs {opponent_name}\n"
-            f"Age: {player_age:.1f} years | Age-Adjusted Predictions",
-            fontsize=18, fontweight='bold', y=0.95
-        )
-
+        title = f"NBA Prediction Analysis: {player_name}"
+        if opponent_name:
+            title += f" vs {opponent_name}"
+        fig.suptitle(title, fontsize=16, fontweight='bold', y=0.96)
+        
         # 1. Recent Performance Trend (top left)
-        ax1 = fig.add_subplot(gs[0, :2])
+        ax1 = fig.add_subplot(gs[0, 0])
         self._plot_recent_performance_trend(ax1, player_id, player_name)
-
+        
         # 2. Prediction Breakdown (top right)
-        ax2 = fig.add_subplot(gs[0, 2:])
+        ax2 = fig.add_subplot(gs[0, 1])
         self._plot_prediction_breakdown(ax2, predictions_df, recent_stats, features_df)
-
+        
         # 3. Age Impact Analysis (middle left)
-        ax3 = fig.add_subplot(gs[1, :2])
+        ax3 = fig.add_subplot(gs[1, 0])
         self._plot_age_impact_analysis(ax3, player_id, player_name, features_df)
-
+        
         # 4. Confidence Factors (middle right)
-        ax4 = fig.add_subplot(gs[1, 2:])
+        ax4 = fig.add_subplot(gs[1, 1])
         self._plot_confidence_factors(ax4, predictions_df, features_df)
-
+        
         # 5. Statistical Context (bottom)
         ax5 = fig.add_subplot(gs[2, :])
         self._plot_statistical_context(ax5, player_id, player_name, predictions_df, recent_stats)
 
-        plt.tight_layout()
+        # Improve layout
+        plt.subplots_adjust(top=0.93)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
             return save_path
         else:
             # Save to default location
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_path = f"plots/prediction_rationale_{player_name.replace(' ', '_')}_{timestamp}.png"
-            plt.savefig(default_path, dpi=300, bbox_inches='tight')
+            safe_name = player_name.replace(' ', '_').replace('.', '')
+            default_path = f"plots/prediction_rationale_{safe_name}_{timestamp}.png"
+            plt.savefig(default_path, dpi=300, bbox_inches='tight', facecolor='white')
             return default_path
 
     def _plot_recent_performance_trend(self, ax, player_id: int, player_name: str):
@@ -123,18 +130,19 @@ class PredictionVisualizer:
             # Plot trends for key stats
             x = range(len(df))
             
-            ax.plot(x, df['pts'], 'o-', label='Points', linewidth=2, markersize=6)
-            ax.plot(x, df['reb'], 's-', label='Rebounds', linewidth=2, markersize=6)
-            ax.plot(x, df['ast'], '^-', label='Assists', linewidth=2, markersize=6)
+            ax.plot(x, df['pts'], 'o-', label='Points', linewidth=2, markersize=6, color='#1f77b4')
+            ax.plot(x, df['reb'], 's-', label='Rebounds', linewidth=2, markersize=6, color='#ff7f0e')
+            ax.plot(x, df['ast'], '^-', label='Assists', linewidth=2, markersize=6, color='#2ca02c')
             
             # Add trend lines
             if len(df) > 3:
                 z_pts = np.polyfit(x, df['pts'], 1)
                 p_pts = np.poly1d(z_pts)
-                ax.plot(x, p_pts(x), '--', alpha=0.7, color='red', label=f'PTS Trend ({z_pts[0]:+.1f}/game)')
+                trend_text = f"PTS Trend: {z_pts[0]:+.1f}/game"
+                ax.plot(x, p_pts(x), '--', alpha=0.7, color='red', label=trend_text)
             
-            ax.set_title("📈 Recent Performance Trend (Last 20 Games)", fontweight='bold')
-            ax.set_xlabel("Games Ago (Most Recent →)")
+            ax.set_title("Recent Performance Trend (Last 20 Games)", fontweight='bold')
+            ax.set_xlabel("Games Ago (Most Recent ->)")
             ax.set_ylabel("Stats Per Game")
             ax.legend()
             ax.grid(True, alpha=0.3)
@@ -177,7 +185,7 @@ class PredictionVisualizer:
             bars2 = ax.bar(x + width/2, predictions, width, label='Age-Adjusted Prediction', 
                           alpha=0.8, color='orange')
             
-            ax.set_title("🎯 Prediction vs Recent Form", fontweight='bold')
+            ax.set_title("Prediction vs Recent Form", fontweight='bold')
             ax.set_xlabel("Statistics")
             ax.set_ylabel("Values")
             ax.set_xticks(x)
@@ -198,7 +206,8 @@ class PredictionVisualizer:
             player_age = features_df.get("player_age", pd.Series([30])).iloc[0] if not features_df.empty else 30
             if player_age >= 35:
                 age_weight = 0.8 if player_age >= 40 else 0.6
-                ax.text(0.02, 0.98, f"Age {player_age:.1f}: {int(age_weight*100)}% recent form weight", 
+                age_info = f"Age {player_age:.1f}: {int(age_weight*100)}% recent form weight"
+                ax.text(0.02, 0.98, age_info, 
                        transform=ax.transAxes, va='top', ha='left',
                        bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7))
                        
@@ -242,9 +251,9 @@ class PredictionVisualizer:
             ages = years - current_year + player_age
             
             # Plot career trends
-            ax.plot(ages, df['avg_pts'], 'o-', label='Points', linewidth=2, markersize=6)
-            ax.plot(ages, df['avg_reb'], 's-', label='Rebounds', linewidth=2, markersize=6)
-            ax.plot(ages, df['avg_ast'], '^-', label='Assists', linewidth=2, markersize=6)
+            ax.plot(ages, df['avg_pts'], 'o-', label='Points', linewidth=2, markersize=6, color='#1f77b4')
+            ax.plot(ages, df['avg_reb'], 's-', label='Rebounds', linewidth=2, markersize=6, color='#ff7f0e')
+            ax.plot(ages, df['avg_ast'], '^-', label='Assists', linewidth=2, markersize=6, color='#2ca02c')
             
             # Highlight current age
             current_age = player_age
@@ -257,7 +266,7 @@ class PredictionVisualizer:
             if current_age >= 40:
                 ax.axvspan(40, 50, alpha=0.1, color='red', label='Elite Longevity (40+)')
             
-            ax.set_title("🎂 Career Performance by Age", fontweight='bold')
+            ax.set_title("Career Performance by Age", fontweight='bold')
             ax.set_xlabel("Player Age")
             ax.set_ylabel("Season Averages")
             ax.legend()
@@ -295,7 +304,7 @@ class PredictionVisualizer:
                 ax.text(bar.get_width() + 1, bar.get_y() + bar.get_height()/2,
                        f'{conf:.0f}%', va='center', fontsize=10)
             
-            ax.set_title("🎯 Prediction Confidence Levels", fontweight='bold')
+            ax.set_title("Prediction Confidence Levels", fontweight='bold')
             ax.set_xlabel("Confidence (%)")
             ax.set_xlim(0, 100)
             ax.legend(loc='lower right')
@@ -326,24 +335,24 @@ class PredictionVisualizer:
                     break
             
             if player_age >= 40:
-                insights.append(f"🔸 At {player_age:.1f} years old, {player_name} is in elite longevity territory")
-                insights.append("🔸 Predictions heavily favor recent form over career averages")
-                insights.append("🔸 Performance may be more variable game-to-game")
+                insights.append(f"• At {player_age:.1f} years old, {player_name} is in elite longevity territory")
+                insights.append("• Predictions heavily favor recent form over career averages")
+                insights.append("• Performance may be more variable game-to-game")
             elif player_age >= 35:
-                insights.append(f"🔹 At {player_age:.1f} years old, {player_name} is a veteran player")
-                insights.append("🔹 Age-related adjustments applied to account for typical decline")
-                insights.append("🔹 Recent performance weighted more heavily")
+                insights.append(f"• At {player_age:.1f} years old, {player_name} is a veteran player")
+                insights.append("• Age-related adjustments applied to account for typical decline")
+                insights.append("• Recent performance weighted more heavily")
             
             # Performance insights
             recent_pts = recent_stats.get('pts_avg', 0)
             pred_pts = predictions_df.get('predicted_pts', pd.Series([0])).iloc[0] if 'predicted_pts' in predictions_df.columns else 0
             
             if abs(recent_pts - pred_pts) < 2:
-                insights.append(f"✅ Prediction closely matches recent form ({recent_pts:.1f} avg)")
+                insights.append(f"• Prediction closely matches recent form ({recent_pts:.1f} avg)")
             elif pred_pts < recent_pts:
-                insights.append(f"📉 Prediction below recent average (regression expected)")
+                insights.append(f"• Prediction below recent average (regression expected)")
             else:
-                insights.append(f"📈 Prediction above recent average (positive outlook)")
+                insights.append(f"• Prediction above recent average (positive outlook)")
             
             # Confidence insights
             avg_confidence = 0
@@ -357,17 +366,17 @@ class PredictionVisualizer:
             if conf_count > 0:
                 avg_confidence = (avg_confidence / conf_count) * 100
                 if avg_confidence >= 70:
-                    insights.append(f"🟢 High confidence predictions ({avg_confidence:.0f}% average)")
+                    insights.append(f"• High confidence predictions ({avg_confidence:.0f}% average)")
                 elif avg_confidence >= 50:
-                    insights.append(f"🟡 Moderate confidence predictions ({avg_confidence:.0f}% average)")
+                    insights.append(f"• Moderate confidence predictions ({avg_confidence:.0f}% average)")
                 else:
-                    insights.append(f"🔴 Lower confidence due to aging player variability ({avg_confidence:.0f}% average)")
+                    insights.append(f"• Lower confidence due to aging player variability ({avg_confidence:.0f}% average)")
             
             # Display insights
             ax.axis('off')
             
             # Title
-            ax.text(0.5, 0.95, "📊 Key Prediction Insights", 
+            ax.text(0.5, 0.95, "Key Prediction Insights", 
                    ha='center', va='top', fontsize=14, fontweight='bold',
                    transform=ax.transAxes)
             
@@ -380,7 +389,7 @@ class PredictionVisualizer:
                 y_pos -= 0.12
                 
             # Add methodology note
-            methodology = ("🔬 Methodology: Age-adjusted predictions combine recent performance "
+            methodology = ("Methodology: Age-adjusted predictions combine recent performance "
                           "with historical data, applying decline curves for aging players.")
             ax.text(0.05, 0.15, methodology, 
                    ha='left', va='top', fontsize=10, style='italic',
@@ -409,28 +418,31 @@ class PredictionVisualizer:
             # Display the chart
             plt.show()
             
-            print(f"\n📊 Visualization saved to: {chart_path}")
-            print("\n🔍 Prediction Rationale Summary:")
+            print(f"\nVisualization saved to: {chart_path}")
+            print("\nPrediction Rationale Summary:")
             print("=" * 50)
             
             # Print key insights
             player_age = features_df.get("player_age", pd.Series([30])).iloc[0] if not features_df.empty else 30
             
             if player_age >= 40:
-                print(f"🔸 Age Factor: {player_age:.1f} years (Elite longevity territory)")
-                print("🔸 Weighting: 80% recent form, 20% historical averages")
-                print("🔸 Confidence: Reduced due to higher variance in aging players")
+                print(f"• Age Factor: {player_age:.1f} years (Elite longevity territory)")
+                print("• Weighting: 80% recent form, 20% historical averages")
+                print("• Confidence: Reduced due to higher variance in aging players")
             elif player_age >= 35:
-                print(f"🔹 Age Factor: {player_age:.1f} years (Veteran adjustments applied)")
-                print("🔹 Weighting: 60% recent form, 40% historical averages")
-                print("🔹 Confidence: Moderate reduction for age-related uncertainty")
+                print(f"• Age Factor: {player_age:.1f} years (Veteran adjustments applied)")
+                print("• Weighting: 60% recent form, 40% historical averages")
+                print("• Confidence: Moderate reduction for age-related uncertainty")
             else:
-                print(f"✅ Age Factor: {player_age:.1f} years (Prime/Standard predictions)")
-                print("✅ Weighting: Standard model predictions")
+                print(f"• Age Factor: {player_age:.1f} years (Prime/Standard predictions)")
+                print("• Weighting: Standard model predictions")
+                
+            print("✓ Visualization created successfully!")
+            print(f"Chart saved to: {chart_path}")
                 
             return chart_path
             
         except Exception as e:
             logger.error(f"Error showing prediction rationale: {e}")
-            print(f"❌ Error creating visualization: {e}")
+            print(f"Error creating visualization: {e}")
             return None

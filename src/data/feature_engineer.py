@@ -541,28 +541,318 @@ class AdvancedFeatureEngineer:
     def _create_team_strength_features(
         self, opponent_team_id: int, target_date: str, conn: sqlite3.Connection
     ) -> Dict:
-        """Create features based on opponent team strength."""
+        """Create enhanced team strength and defensive ranking features."""
         features = {}
 
-        # Get opponent team's recent performance
-        query = """
-            SELECT AVG(pts) as opp_pts_allowed, AVG(reb) as opp_reb_allowed,
-                   AVG(ast) as opp_ast_allowed, COUNT(*) as opp_games
-            FROM player_games
-            WHERE team_id != ? AND game_date < ? AND game_date >= date(?, '-30 days')
-        """
+        try:
+            # Get opponent team's overall defensive metrics (last 15 games)
+            defense_query = """
+                SELECT 
+                    AVG(pts) as avg_pts_allowed,
+                    AVG(reb) as avg_reb_allowed,
+                    AVG(ast) as avg_ast_allowed,
+                    AVG(stl) as avg_stl_generated,
+                    AVG(blk) as avg_blk_generated,
+                    AVG(CAST(fg_pct AS FLOAT)) as avg_fg_pct_allowed,
+                    AVG(CAST(three_pt_pct AS FLOAT)) as avg_3pt_pct_allowed,
+                    COUNT(*) as games_sample
+                FROM player_games 
+                WHERE opponent_team_id = ? AND game_date < ? AND game_date >= DATE(?, '-15 days')
+                AND fg_pct IS NOT NULL AND fg_pct != ''
+            """
+
+            def_df = pd.read_sql_query(
+                defense_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not def_df.empty and def_df["games_sample"].iloc[0] >= 5:
+                # Defensive efficiency metrics
+                features["opp_def_efficiency"] = def_df["avg_pts_allowed"].iloc[0] / 100  # Normalized
+                features["opp_reb_def_rate"] = def_df["avg_reb_allowed"].iloc[0] / 45  # Normalized
+                features["opp_def_fg_pct"] = def_df["avg_fg_pct_allowed"].iloc[0] or 0.45
+                features["opp_def_3pt_pct"] = def_df["avg_3pt_pct_allowed"].iloc[0] or 0.35
+                
+                # Defensive pressure metrics
+                features["opp_steal_rate"] = def_df["avg_stl_generated"].iloc[0] / 10  # Normalized
+                features["opp_block_rate"] = def_df["avg_blk_generated"].iloc[0] / 6   # Normalized
+                
+                # Calculate relative defensive strength
+                league_avg_pts = 112
+                league_avg_fg = 0.46
+                
+                features["opp_pts_def_relative"] = def_df["avg_pts_allowed"].iloc[0] / league_avg_pts
+                features["opp_fg_def_relative"] = (def_df["avg_fg_pct_allowed"].iloc[0] or 0.46) / league_avg_fg
+                
+            else:
+                # Use league averages as defaults
+                features["opp_def_efficiency"] = 1.12  # Average
+                features["opp_reb_def_rate"] = 0.96
+                features["opp_def_fg_pct"] = 0.46
+                features["opp_def_3pt_pct"] = 0.35
+                features["opp_steal_rate"] = 0.8
+                features["opp_block_rate"] = 0.83
+                features["opp_pts_def_relative"] = 1.0
+                features["opp_fg_def_relative"] = 1.0
+
+            # Team pace and style features
+            pace_query = """
+                SELECT 
+                    COUNT(*) / COUNT(DISTINCT game_date) as avg_possessions_approx,
+                    AVG(pts) as avg_team_pts,
+                    AVG(ast) as avg_team_ast,
+                    COUNT(DISTINCT game_date) as games_played
+                FROM player_games 
+                WHERE team_id = ? AND game_date < ? AND game_date >= DATE(?, '-10 days')
+            """
+
+            pace_df = pd.read_sql_query(
+                pace_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not pace_df.empty and pace_df["games_played"].iloc[0] >= 3:
+                possessions = pace_df["avg_possessions_approx"].iloc[0]
+                features["opp_team_pace"] = min(max(possessions / 15, 0.8), 1.2)  # Normalized pace
+                features["opp_team_offensive_rating"] = pace_df["avg_team_pts"].iloc[0] / 110  # Normalized
+                features["opp_team_ball_movement"] = pace_df["avg_team_ast"].iloc[0] / 25     # Normalized
+            else:
+                features["opp_team_pace"] = 1.0  # Average pace
+                features["opp_team_offensive_rating"] = 1.0
+                features["opp_team_ball_movement"] = 1.0
+
+            # Recent form and momentum
+            momentum_query = """
+                SELECT 
+                    game_date,
+                    SUM(pts) as team_pts
+                FROM player_games 
+                WHERE team_id = ? AND game_date < ? AND game_date >= DATE(?, '-12 days')
+                GROUP BY game_date
+                ORDER BY game_date DESC
+                LIMIT 4
+            """
+
+            momentum_df = pd.read_sql_query(
+                momentum_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if len(momentum_df) >= 3:
+                recent_scores = momentum_df["team_pts"].values
+                features["opp_team_momentum"] = self._calculate_momentum(recent_scores)
+                features["opp_team_consistency"] = 1.0 / (1.0 + np.std(recent_scores) / np.mean(recent_scores))
+                features["opp_recent_avg_pts"] = np.mean(recent_scores)
+            else:
+                features["opp_team_momentum"] = 0.0
+                features["opp_team_consistency"] = 0.8
+                features["opp_recent_avg_pts"] = 110
+
+        except Exception as e:
+            logger.warning(f"Error creating team strength features: {e}")
+            # Set reasonable defaults
+            features.update({
+                "opp_def_efficiency": 1.1,
+                "opp_reb_def_rate": 1.0,
+                "opp_def_fg_pct": 0.46,
+                "opp_def_3pt_pct": 0.35,
+                "opp_steal_rate": 0.8,
+                "opp_block_rate": 0.8,
+                "opp_pts_def_relative": 1.0,
+                "opp_fg_def_relative": 1.0,
+                "opp_team_pace": 1.0,
+                "opp_team_offensive_rating": 1.0,
+                "opp_team_ball_movement": 1.0,
+                "opp_team_momentum": 0.0,
+                "opp_team_consistency": 0.8,
+                "opp_recent_avg_pts": 110,
+            })
+
+        return features
+
+    def _create_opponent_specific_features(
+        self,
+        player_id: int,
+        opponent_team_id: int,
+        target_date: str,
+        conn: sqlite3.Connection,
+    ) -> Dict:
+        """Create features specific to the opponent team and defensive matchups."""
+        features = {}
 
         try:
-            result = conn.execute(
-                query, (opponent_team_id, target_date, target_date)
-            ).fetchone()
-            if result and result[3] > 5:  # At least 5 games of data
-                features["opp_pts_allowed_avg"] = result[0] or 0
-                features["opp_reb_allowed_avg"] = result[1] or 0
-                features["opp_ast_allowed_avg"] = result[2] or 0
-                features["opp_defensive_games"] = result[3] or 0
+            # Get opponent team's recent defensive stats
+            query = """
+                SELECT 
+                    AVG(pg.pts) as avg_pts_allowed,
+                    AVG(pg.reb) as avg_reb_allowed,
+                    AVG(pg.ast) as avg_ast_allowed,
+                    AVG(pg.stl) as avg_stl_allowed,
+                    AVG(pg.blk) as avg_blk_allowed,
+                    COUNT(*) as games_played
+                FROM player_games pg
+                JOIN teams t ON pg.team_id = ?
+                WHERE pg.game_date < ? AND pg.game_date >= DATE(?, '-30 days')
+                GROUP BY pg.opponent_team_id
+            """
+
+            opponent_def_df = pd.read_sql_query(
+                query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not opponent_def_df.empty:
+                features["opp_def_pts_allowed"] = opponent_def_df["avg_pts_allowed"].iloc[0]
+                features["opp_def_reb_allowed"] = opponent_def_df["avg_reb_allowed"].iloc[0]
+                features["opp_def_ast_allowed"] = opponent_def_df["avg_ast_allowed"].iloc[0]
+                features["opp_def_stl_allowed"] = opponent_def_df["avg_stl_allowed"].iloc[0]
+                features["opp_def_blk_allowed"] = opponent_def_df["avg_blk_allowed"].iloc[0]
+                
+                # Calculate defensive ratings (lower is better defense)
+                league_avg_pts = 112  # Approximate NBA average
+                features["opp_def_rating_pts"] = opponent_def_df["avg_pts_allowed"].iloc[0] / league_avg_pts
+                features["opp_def_rating_reb"] = opponent_def_df["avg_reb_allowed"].iloc[0] / 43  # Avg rebounds
+                features["opp_def_rating_ast"] = opponent_def_df["avg_ast_allowed"].iloc[0] / 25  # Avg assists
+            else:
+                # League average defaults
+                features["opp_def_pts_allowed"] = 112
+                features["opp_def_reb_allowed"] = 43
+                features["opp_def_ast_allowed"] = 25
+                features["opp_def_stl_allowed"] = 8
+                features["opp_def_blk_allowed"] = 5
+                features["opp_def_rating_pts"] = 1.0
+                features["opp_def_rating_reb"] = 1.0
+                features["opp_def_rating_ast"] = 1.0
+
+            # Get opponent's pace and style of play
+            pace_query = """
+                SELECT 
+                    AVG(CAST(fg_pct AS FLOAT)) as avg_fg_pct,
+                    AVG(CAST(three_pt_pct AS FLOAT)) as avg_3pt_pct,
+                    AVG(CAST(ft_pct AS FLOAT)) as avg_ft_pct,
+                    COUNT(*) as games_count
+                FROM player_games pg
+                WHERE pg.team_id = ? AND pg.game_date < ? AND pg.game_date >= DATE(?, '-20 days')
+                AND fg_pct IS NOT NULL AND fg_pct != ''
+            """
+
+            pace_df = pd.read_sql_query(
+                pace_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not pace_df.empty and pace_df["games_count"].iloc[0] > 5:
+                features["opp_team_fg_pct"] = pace_df["avg_fg_pct"].iloc[0] or 0.45
+                features["opp_team_3pt_pct"] = pace_df["avg_3pt_pct"].iloc[0] or 0.35
+                features["opp_team_ft_pct"] = pace_df["avg_ft_pct"].iloc[0] or 0.75
+            else:
+                features["opp_team_fg_pct"] = 0.45  # League averages
+                features["opp_team_3pt_pct"] = 0.35
+                features["opp_team_ft_pct"] = 0.75
+
+            # Head-to-head historical performance
+            h2h_query = """
+                SELECT 
+                    AVG(pts) as avg_h2h_pts,
+                    AVG(reb) as avg_h2h_reb,
+                    AVG(ast) as avg_h2h_ast,
+                    AVG(stl) as avg_h2h_stl,
+                    AVG(blk) as avg_h2h_blk,
+                    COUNT(*) as h2h_games
+                FROM player_games 
+                WHERE player_id = ? AND opponent_team_id = ? AND game_date < ?
+                AND game_date >= DATE(?, '-365 days')  -- Last year
+            """
+
+            h2h_df = pd.read_sql_query(
+                h2h_query, conn, params=(player_id, opponent_team_id, target_date, target_date)
+            )
+
+            if not h2h_df.empty and h2h_df["h2h_games"].iloc[0] > 0:
+                features["h2h_pts_avg"] = h2h_df["avg_h2h_pts"].iloc[0]
+                features["h2h_reb_avg"] = h2h_df["avg_h2h_reb"].iloc[0]
+                features["h2h_ast_avg"] = h2h_df["avg_h2h_ast"].iloc[0]
+                features["h2h_stl_avg"] = h2h_df["avg_h2h_stl"].iloc[0]
+                features["h2h_blk_avg"] = h2h_df["avg_h2h_blk"].iloc[0]
+                features["h2h_games_count"] = h2h_df["h2h_games"].iloc[0]
+                features["has_h2h_history"] = 1
+            else:
+                features["h2h_pts_avg"] = 0
+                features["h2h_reb_avg"] = 0
+                features["h2h_ast_avg"] = 0
+                features["h2h_stl_avg"] = 0
+                features["h2h_blk_avg"] = 0
+                features["h2h_games_count"] = 0
+                features["has_h2h_history"] = 0
+
+            # Advanced opponent strength features
+            # Get opponent's recent form (W/L record approximation based on team performance)
+            team_form_query = """
+                SELECT 
+                    AVG(CASE WHEN pts > 110 THEN 1 ELSE 0 END) as high_scoring_rate,
+                    AVG(CASE WHEN pts < 100 THEN 1 ELSE 0 END) as low_scoring_rate,
+                    COUNT(*) as team_games
+                FROM (
+                    SELECT game_date, SUM(pts) as pts
+                    FROM player_games 
+                    WHERE team_id = ? AND game_date < ? AND game_date >= DATE(?, '-15 days')
+                    GROUP BY game_date
+                ) team_scores
+            """
+
+            form_df = pd.read_sql_query(
+                team_form_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not form_df.empty:
+                features["opp_high_scoring_rate"] = form_df["high_scoring_rate"].iloc[0] or 0.5
+                features["opp_low_scoring_rate"] = form_df["low_scoring_rate"].iloc[0] or 0.3
+            else:
+                features["opp_high_scoring_rate"] = 0.5
+                features["opp_low_scoring_rate"] = 0.3
+
+            # Opponent positional strength (simplified)
+            pos_strength_query = """
+                SELECT 
+                    AVG(CASE WHEN position LIKE '%G%' THEN pts ELSE NULL END) as guard_pts_allowed,
+                    AVG(CASE WHEN position LIKE '%F%' THEN pts ELSE NULL END) as forward_pts_allowed,
+                    AVG(CASE WHEN position LIKE '%C%' THEN pts ELSE NULL END) as center_pts_allowed
+                FROM player_games 
+                WHERE opponent_team_id = ? AND game_date < ? AND game_date >= DATE(?, '-20 days')
+                AND position IS NOT NULL AND position != ''
+            """
+
+            pos_df = pd.read_sql_query(
+                pos_strength_query, conn, params=(opponent_team_id, target_date, target_date)
+            )
+
+            if not pos_df.empty:
+                features["opp_guard_def"] = pos_df["guard_pts_allowed"].iloc[0] or 20
+                features["opp_forward_def"] = pos_df["forward_pts_allowed"].iloc[0] or 18  
+                features["opp_center_def"] = pos_df["center_pts_allowed"].iloc[0] or 15
+            else:
+                features["opp_guard_def"] = 20
+                features["opp_forward_def"] = 18
+                features["opp_center_def"] = 15
+
         except Exception as e:
-            logger.warning(f"Could not get opponent strength features: {e}")
+            logger.warning(f"Error creating opponent features: {e}")
+            # Set safe defaults
+            features.update({
+                "opp_def_pts_allowed": 112,
+                "opp_def_reb_allowed": 43,
+                "opp_def_ast_allowed": 25,
+                "opp_def_stl_allowed": 8,
+                "opp_def_blk_allowed": 5,
+                "opp_def_rating_pts": 1.0,
+                "opp_def_rating_reb": 1.0,
+                "opp_def_rating_ast": 1.0,
+                "opp_team_fg_pct": 0.45,
+                "opp_team_3pt_pct": 0.35,
+                "opp_team_ft_pct": 0.75,
+                "h2h_pts_avg": 0,
+                "h2h_reb_avg": 0,
+                "h2h_ast_avg": 0,
+                "h2h_games_count": 0,
+                "has_h2h_history": 0,
+                "opp_high_scoring_rate": 0.5,
+                "opp_low_scoring_rate": 0.3,
+            })
 
         return features
 
@@ -758,139 +1048,6 @@ class AdvancedFeatureEngineer:
                 features["rest_consistency"] = 1 / (
                     rest_days.std() + 1
                 )  # Higher = more consistent
-
-        return features
-
-    def _create_opponent_specific_features(
-        self,
-        player_id: int,
-        opponent_team_id: int,
-        target_date: str,
-        conn: sqlite3.Connection,
-    ) -> Dict:
-        """Create features specific to matchup against opponent team."""
-        features = {}
-
-        try:
-            # Get historical performance against this opponent
-            h2h_query = """
-                SELECT pts, reb, ast, stl, blk, min, game_date, wl
-                FROM player_games 
-                WHERE player_id = ? AND game_date < ?
-                AND (matchup LIKE ? OR matchup LIKE ?)
-                ORDER BY game_date DESC
-                LIMIT 10
-            """
-
-            # Create matchup patterns for both home and away games
-            home_pattern = f"%vs. {opponent_team_id}%"
-            away_pattern = f"%@ {opponent_team_id}%"
-
-            h2h_df = pd.read_sql_query(
-                h2h_query,
-                conn,
-                params=(player_id, target_date, home_pattern, away_pattern),
-            )
-
-            if not h2h_df.empty:
-                # Head-to-head averages
-                features["h2h_pts_avg"] = h2h_df["pts"].mean()
-                features["h2h_reb_avg"] = h2h_df["reb"].mean()
-                features["h2h_ast_avg"] = h2h_df["ast"].mean()
-                features["h2h_stl_avg"] = h2h_df["stl"].mean()
-                features["h2h_blk_avg"] = h2h_df["blk"].mean()
-                features["h2h_min_avg"] = h2h_df["min"].mean()
-                features["h2h_games_count"] = len(h2h_df)
-
-                # Win rate against opponent
-                features["h2h_win_rate"] = (h2h_df["wl"] == "W").mean()
-
-                # Recent performance vs opponent (last 3 games)
-                recent_h2h = h2h_df.head(3)
-                if len(recent_h2h) > 0:
-                    features["h2h_recent_pts_avg"] = recent_h2h["pts"].mean()
-                    features["h2h_recent_games"] = len(recent_h2h)
-                else:
-                    features["h2h_recent_pts_avg"] = 0
-                    features["h2h_recent_games"] = 0
-
-                # Performance trend vs opponent
-                if len(h2h_df) >= 3:
-                    features["h2h_pts_trend"] = self._calculate_trend(
-                        h2h_df["pts"].values
-                    )
-                else:
-                    features["h2h_pts_trend"] = 0
-
-            else:
-                # No historical data against this opponent
-                features["h2h_pts_avg"] = 0
-                features["h2h_reb_avg"] = 0
-                features["h2h_ast_avg"] = 0
-                features["h2h_stl_avg"] = 0
-                features["h2h_blk_avg"] = 0
-                features["h2h_min_avg"] = 0
-                features["h2h_games_count"] = 0
-                features["h2h_win_rate"] = 0
-                features["h2h_recent_pts_avg"] = 0
-                features["h2h_recent_games"] = 0
-                features["h2h_pts_trend"] = 0
-
-            # Get opponent team's defensive stats (if available)
-            opponent_defense_query = """
-                SELECT AVG(pts) as avg_pts_allowed, COUNT(*) as games_played
-                FROM player_games 
-                WHERE game_date < ? AND game_date >= date(?, '-30 days')
-                AND (matchup LIKE ? OR matchup LIKE ?)
-            """
-
-            # Patterns to find games against this opponent team
-            vs_opponent_home = f"%vs. {opponent_team_id}%"
-            vs_opponent_away = f"%@ {opponent_team_id}%"
-
-            try:
-                opponent_defense = pd.read_sql_query(
-                    opponent_defense_query,
-                    conn,
-                    params=(
-                        target_date,
-                        target_date,
-                        vs_opponent_home,
-                        vs_opponent_away,
-                    ),
-                )
-
-                if (
-                    not opponent_defense.empty
-                    and opponent_defense.iloc[0]["games_played"] > 0
-                ):
-                    features["opponent_avg_pts_allowed"] = opponent_defense.iloc[0][
-                        "avg_pts_allowed"
-                    ]
-                else:
-                    features["opponent_avg_pts_allowed"] = 110  # NBA average
-            except:
-                features["opponent_avg_pts_allowed"] = 110  # NBA average
-
-        except Exception as e:
-            logger.error(f"Error creating opponent-specific features: {e}")
-            # Set default values if error occurs
-            features.update(
-                {
-                    "h2h_pts_avg": 0,
-                    "h2h_reb_avg": 0,
-                    "h2h_ast_avg": 0,
-                    "h2h_stl_avg": 0,
-                    "h2h_blk_avg": 0,
-                    "h2h_min_avg": 0,
-                    "h2h_games_count": 0,
-                    "h2h_win_rate": 0,
-                    "h2h_recent_pts_avg": 0,
-                    "h2h_recent_games": 0,
-                    "h2h_pts_trend": 0,
-                    "opponent_avg_pts_allowed": 110,
-                }
-            )
 
         return features
 

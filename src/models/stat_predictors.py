@@ -78,6 +78,13 @@ class AdvancedStatPredictor:
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
         self.feature_names_ = list(X.columns)  # Store training feature names
+        
+        # Store sample of training features for confidence calculation
+        try:
+            sample_size = min(1000, len(X_scaled))  # Sample max 1000 rows
+            self.training_features_ = X_scaled.sample(n=sample_size, random_state=42).values
+        except:
+            self.training_features_ = None
 
         # Hyperparameter optimization
         if optimize_hyperparams and hasattr(self, "_get_param_space"):
@@ -133,14 +140,26 @@ class AdvancedStatPredictor:
             X_aligned = X
 
         X_scaled = self.scaler.transform(X_aligned)
+        
+        # Store training features for confidence calculation (sample if too large)
+        if not hasattr(self, 'training_features_'):
+            try:
+                # This would ideally be stored during training, but for now we'll skip
+                self.training_features_ = None
+            except:
+                self.training_features_ = None
+        
         predictions = self.model.predict(X_scaled)
 
         # Apply age-based adjustments if age features are available
         predictions = self._apply_age_adjustments(predictions, X_aligned)
 
         if return_confidence:
-            # Calculate prediction intervals using bootstrap or ensemble variance
-            confidence = self._calculate_prediction_confidence(X_scaled)
+            # Use ensemble confidence if available, otherwise basic confidence
+            if hasattr(self, 'base_models') and self.base_models:
+                confidence = self._calculate_ensemble_confidence(X_scaled)
+            else:
+                confidence = self._calculate_prediction_confidence(X_scaled)
             return predictions, confidence
 
         return predictions
@@ -262,10 +281,105 @@ class AdvancedStatPredictor:
         return {}
 
     def _calculate_prediction_confidence(self, X_scaled: np.ndarray) -> np.ndarray:
-        """Calculate confidence for individual predictions."""
-        # Simplified confidence based on feature similarity to training data
-        # This is a placeholder - more sophisticated methods can be implemented
-        return np.ones(len(X_scaled)) * 0.8  # Default confidence
+        """Calculate confidence for individual predictions using multiple factors."""
+        n_samples = len(X_scaled)
+        confidences = np.ones(n_samples)
+        
+        # Factor 1: Model performance-based confidence
+        base_confidence = 0.5
+        if hasattr(self, 'performance_metrics') and self.performance_metrics:
+            # Use validation R² as base confidence
+            r2 = self.performance_metrics.get("test_r2", 0)
+            mape = self.performance_metrics.get("mape", 50)
+            
+            # Convert metrics to confidence (0-1 scale)
+            r2_confidence = max(0.2, min(0.9, (r2 + 1) / 2))  # Scale R² to 0.2-0.9
+            mape_confidence = max(0.2, min(0.9, 1 - (mape / 100)))  # Lower MAPE = higher confidence
+            
+            base_confidence = (r2_confidence + mape_confidence) / 2
+        
+        # Factor 2: Feature similarity to training data (simplified distance measure)
+        if hasattr(self, 'training_features_') and self.training_features_ is not None:
+            try:
+                # Calculate mean distance from training data centroid
+                training_mean = np.mean(self.training_features_, axis=0)
+                distances = np.linalg.norm(X_scaled - training_mean, axis=1)
+                max_distance = np.percentile(distances, 95)  # 95th percentile as max
+                
+                # Convert distance to similarity confidence (closer = more confident)
+                similarity_confidence = 1 - np.clip(distances / max_distance, 0, 1)
+                similarity_confidence = 0.3 + 0.4 * similarity_confidence  # Scale to 0.3-0.7
+            except:
+                similarity_confidence = np.ones(n_samples) * 0.5
+        else:
+            similarity_confidence = np.ones(n_samples) * 0.5
+        
+        # Factor 3: Age-based confidence adjustment
+        age_confidence = np.ones(n_samples)
+        if hasattr(X_scaled, 'shape') and X_scaled.shape[1] > 0:
+            # Try to find age column (simplified - assumes it's been scaled)
+            # This is approximate since features are scaled
+            try:
+                # Age confidence: younger players = higher confidence
+                # This is a simplified heuristic
+                age_confidence = np.ones(n_samples) * 0.8  # Default for most players
+            except:
+                age_confidence = np.ones(n_samples) * 0.8
+        
+        # Combine confidence factors
+        final_confidence = base_confidence * similarity_confidence * age_confidence
+        
+        # Ensure confidence is in reasonable range
+        final_confidence = np.clip(final_confidence, 0.15, 0.95)
+        
+        return final_confidence
+
+    def _calculate_ensemble_confidence(self, X_scaled: np.ndarray) -> np.ndarray:
+        """Calculate confidence based on ensemble prediction variance."""
+        if not hasattr(self, 'base_models') or not self.base_models:
+            return self._calculate_prediction_confidence(X_scaled)
+        
+        # Get predictions from all base models
+        predictions_list = []
+        
+        try:
+            for model_name, model in self.base_models.items():
+                try:
+                    pred = model.predict(X_scaled)
+                    predictions_list.append(pred)
+                except Exception as e:
+                    logger.warning(f"Failed to get predictions from {model_name}: {e}")
+                    continue
+            
+            if len(predictions_list) >= 2:
+                # Calculate prediction variance across models
+                predictions_array = np.array(predictions_list).T  # Shape: (n_samples, n_models)
+                prediction_std = np.std(predictions_array, axis=1)
+                
+                # Convert variance to confidence (lower variance = higher confidence)
+                # Normalize by typical stat values for this stat type
+                if self.stat_type == "pts":
+                    typical_value = 20
+                elif self.stat_type in ["reb", "ast"]:
+                    typical_value = 8
+                else:  # stl, blk
+                    typical_value = 1.5
+                
+                normalized_std = prediction_std / typical_value
+                variance_confidence = 1 / (1 + normalized_std)  # Higher std = lower confidence
+                variance_confidence = np.clip(variance_confidence, 0.2, 0.9)
+                
+                # Combine with base confidence
+                base_confidence = self._calculate_prediction_confidence(X_scaled)
+                ensemble_confidence = (base_confidence + variance_confidence) / 2
+                
+                return np.clip(ensemble_confidence, 0.15, 0.95)
+        
+        except Exception as e:
+            logger.warning(f"Error calculating ensemble confidence: {e}")
+        
+        # Fallback to base confidence calculation
+        return self._calculate_prediction_confidence(X_scaled)
 
     def _extract_feature_importance(self, feature_names: List[str]) -> None:
         """Extract feature importance from the trained model."""
@@ -916,13 +1030,32 @@ class ModelManager:
         if not predictor.performance_metrics:
             return 0.5
 
-        # Use validation R² as a base for confidence
-        r2 = predictor.performance_metrics.get("val_r2", 0)
-
-        # Convert R² to confidence score (0 to 1)
-        confidence = max(0, min(1, (r2 + 1) / 2))
-
-        return confidence
+        # Use multiple metrics for confidence calculation
+        r2 = predictor.performance_metrics.get("test_r2", 0)
+        mape = predictor.performance_metrics.get("mape", 50)  # Mean Absolute Percentage Error
+        mae = predictor.performance_metrics.get("test_mae", 999)
+        
+        # Calculate confidence from different metrics
+        # R² confidence (higher R² = higher confidence)
+        r2_confidence = max(0.2, min(0.9, (r2 + 1) / 2))
+        
+        # MAPE confidence (lower MAPE = higher confidence)
+        mape_confidence = max(0.2, min(0.9, 1 - (mape / 100)))
+        
+        # MAE confidence (stat-specific reasonable MAE thresholds)
+        if predictor.stat_type == "pts":
+            reasonable_mae = 5.0  # Points
+        elif predictor.stat_type in ["reb", "ast"]:
+            reasonable_mae = 3.0  # Rebounds, Assists
+        else:  # stl, blk
+            reasonable_mae = 1.0  # Steals, Blocks
+            
+        mae_confidence = max(0.2, min(0.9, 1 - (mae / reasonable_mae)))
+        
+        # Weighted combination of confidences
+        confidence = (r2_confidence * 0.4 + mape_confidence * 0.3 + mae_confidence * 0.3)
+        
+        return max(0.15, min(0.95, confidence))
 
     def _store_model_performance(
         self,
