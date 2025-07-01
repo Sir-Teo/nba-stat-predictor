@@ -272,7 +272,7 @@ class InteractiveNBADashboard:
         print("-" * 60)
         
         analysis_choice = input("Select analysis level (1-3, default=3): ").strip()
-        
+
         # Get player name
         player_name = input("Enter player name: ").strip()
         if not player_name:

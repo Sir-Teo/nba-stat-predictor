@@ -1,0 +1,132 @@
+{
+  "confidence": {
+    "status": "error",
+    "message": "'NoneType' object has no attribute 'predict'"
+  },
+  "features": {
+    "status": "success",
+    "analysis": {
+      "age_features": [
+        "player_age",
+        "age_decline_factor",
+        "high_usage_games",
+        "low_usage_games"
+      ],
+      "opponent_features": [
+        "opp_def_efficiency",
+        "opp_reb_def_rate",
+        "opp_def_fg_pct",
+        "opp_def_3pt_pct",
+        "opp_steal_rate",
+        "opp_block_rate",
+        "opp_pts_def_relative",
+        "opp_fg_def_relative",
+        "opp_team_pace",
+        "opp_team_offensive_rating",
+        "opp_team_ball_movement",
+        "opp_team_momentum",
+        "opp_team_consistency",
+        "opp_recent_avg_pts",
+        "opp_def_pts_allowed",
+        "opp_def_reb_allowed",
+        "opp_def_ast_allowed",
+        "opp_def_stl_allowed",
+        "opp_def_blk_allowed",
+        "opp_def_rating_pts",
+        "opp_def_rating_reb",
+        "opp_def_rating_ast",
+        "opp_team_fg_pct",
+        "opp_team_3pt_pct",
+        "opp_team_ft_pct",
+        "opp_high_scoring_rate",
+        "opp_low_scoring_rate",
+        "opponent_team_id"
+      ],
+      "h2h_features": [
+        "h2h_pts_avg",
+        "h2h_reb_avg",
+        "h2h_ast_avg",
+        "h2h_games_count",
+        "has_h2h_history"
+      ],
+      "total_features": 530,
+      "feature_quality": "good"
+    },
+    "sample_features": [
+      "player_age",
+      "is_rookie",
+      "is_young",
+      "is_prime",
+      "is_veteran",
+      "is_aging_vet",
+      "age_decline_factor",
+      "recent_form_weight",
+      "years_experience",
+      "is_superhuman_longevity"
+    ]
+  },
+  "visualization": {
+    "status": "success",
+    "chart_path": "plots/prediction_rationale_LeBron_James_20250701_092629.png",
+    "file_size_kb": 896.103515625,
+    "no_unicode_errors": true
+  },
+  "end_to_end": {
+    "status": "success",
+    "successful_predictions": 3,
+    "total_tests": 3,
+    "results": {
+      "LeBron James": {
+        "predictions": {
+          "predicted_pts": 0,
+          "confidence_pts": 0,
+          "predicted_reb": 0,
+          "confidence_reb": 0,
+          "predicted_ast": 0,
+          "confidence_ast": 0,
+          "predicted_stl": 0,
+          "confidence_stl": 0,
+          "predicted_blk": 0,
+          "confidence_blk": 0
+        },
+        "avg_prediction": 0.0,
+        "avg_confidence": 0.0,
+        "status": "success"
+      },
+      "Nikola Jokic": {
+        "predictions": {
+          "predicted_pts": 0,
+          "confidence_pts": 0,
+          "predicted_reb": 0,
+          "confidence_reb": 0,
+          "predicted_ast": 0,
+          "confidence_ast": 0,
+          "predicted_stl": 0,
+          "confidence_stl": 0,
+          "predicted_blk": 0,
+          "confidence_blk": 0
+        },
+        "avg_prediction": 0.0,
+        "avg_confidence": 0.0,
+        "status": "success"
+      },
+      "Luka Doncic": {
+        "predictions": {
+          "predicted_pts": 0,
+          "confidence_pts": 0,
+          "predicted_reb": 0,
+          "confidence_reb": 0,
+          "predicted_ast": 0,
+          "confidence_ast": 0,
+          "predicted_stl": 0,
+          "confidence_stl": 0,
+          "predicted_blk": 0,
+          "confidence_blk": 0
+        },
+        "avg_prediction": 0.0,
+        "avg_confidence": 0.0,
+        "status": "success"
+      }
+    }
+  }
+}

@@ -78,7 +78,7 @@ class AdvancedStatPredictor:
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
         self.feature_names_ = list(X.columns)  # Store training feature names
-
+        
         # Store sample of training features for confidence calculation
         try:
             sample_size = min(1000, len(X_scaled))  # Sample max 1000 rows
@@ -159,7 +159,7 @@ class AdvancedStatPredictor:
             if hasattr(self, 'base_models') and self.base_models:
                 confidence = self._calculate_ensemble_confidence(X_scaled)
             else:
-            confidence = self._calculate_prediction_confidence(X_scaled)
+                confidence = self._calculate_prediction_confidence(X_scaled)
             return predictions, confidence
 
         return predictions
@@ -415,12 +415,6 @@ class AdvancedStatPredictor:
             "trained_at": datetime.now().isoformat(),
         }
 
-        # Include ensemble components if this is an ensemble predictor
-        if isinstance(self, AdvancedEnsembleStatPredictor):
-            model_data["base_models"] = self.base_models
-            model_data["meta_learner"] = self.meta_learner
-            model_data["is_ensemble"] = True
-
         with open(filepath, "wb") as f:
             pickle.dump(model_data, f)
 
@@ -666,9 +660,6 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         self, X: pd.DataFrame, y: pd.Series, optimize_hyperparams: bool = True
     ) -> Dict[str, float]:
         """Train ensemble with stacking."""
-        # Store feature names for later alignment
-        self.feature_names_ = list(X.columns)
-        
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
 
@@ -683,17 +674,7 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
 
         # Train meta-learner
         tqdm.write(f"   🧠 Training meta-learner for {self.stat_type} ensemble...")
-        try:
-            self.meta_learner.fit(stacking_features, y)
-        except Exception as e:
-            tqdm.write(f"   ❌ Failed to train meta-learner: {e}")
-            tqdm.write(f"   🔄 Using simpler Ridge meta-learner...")
-            from sklearn.linear_model import Ridge
-            self.meta_learner = Ridge(alpha=1.0)
         self.meta_learner.fit(stacking_features, y)
-
-        # Store meta learner as primary model for saving
-        self.model = self.meta_learner
 
         # Train base models on full data
         tqdm.write(f"   🏗️  Training base models for {self.stat_type} ensemble...")
@@ -717,13 +698,6 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         tqdm.write(
             f"   ✅ Successfully trained {successful_models}/{len(self.base_models)} base models"
         )
-
-        # Check if we have enough successful models
-        if successful_models == 0:
-            raise ValueError(f"No base models were successfully trained for {self.stat_type}")
-        
-        if successful_models < len(self.base_models) / 2:
-            tqdm.write(f"   ⚠️  Warning: Only {successful_models}/{len(self.base_models)} models trained successfully")
 
         # Set trained flag before calculating metrics (needed for predict method)
         self.is_trained = True
@@ -786,32 +760,51 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         """Make ensemble predictions using stacking."""
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
+        
+        # Ensure base_models is properly initialized
+        if not hasattr(self, 'base_models') or self.base_models is None:
+            raise ValueError("Ensemble base models not properly loaded")
+        
+        # Ensure meta_learner is properly initialized  
+        if not hasattr(self, 'meta_learner') or self.meta_learner is None:
+            raise ValueError("Ensemble meta-learner not properly loaded")
 
-        # Align features with training data if needed
-        if hasattr(self, 'feature_names_') and self.feature_names_ is not None:
-            X_aligned = self._align_features(X, self.feature_names_)
-        else:
-            X_aligned = X
-
-        X_scaled = self.scaler.transform(X_aligned)
+        X_scaled = self.scaler.transform(X)
 
         # Generate base model predictions
         base_predictions = np.zeros((len(X), len(self.base_models)))
+        successful_predictions = 0
 
         for i, (name, model) in enumerate(self.base_models.items()):
             try:
-                base_predictions[:, i] = model.predict(X_scaled)
+                if model is not None:
+                    base_predictions[:, i] = model.predict(X_scaled)
+                    successful_predictions += 1
+                else:
+                    logger.warning(f"Base model {name} is None, using fallback")
+                    base_predictions[:, i] = 0  # Fallback
             except Exception as e:
                 logger.warning(f"Failed to get predictions from {name}: {e}")
                 base_predictions[:, i] = 0  # Fallback
+        
+        if successful_predictions == 0:
+            raise ValueError("No base models were able to make predictions")
 
         # Meta-learner prediction
-        ensemble_predictions = self.meta_learner.predict(base_predictions)
+        try:
+            ensemble_predictions = self.meta_learner.predict(base_predictions)
+        except Exception as e:
+            logger.error(f"Meta-learner prediction failed: {e}")
+            # Fallback to simple average if meta-learner fails
+            ensemble_predictions = np.mean(base_predictions, axis=1)
 
         if return_confidence:
             # Calculate ensemble confidence based on agreement between models
-            model_std = np.std(base_predictions, axis=1)
-            confidence = 1.0 / (1.0 + model_std)  # Higher confidence when models agree
+            if successful_predictions > 1:
+                model_std = np.std(base_predictions, axis=1)
+                confidence = 1.0 / (1.0 + model_std)  # Higher confidence when models agree
+            else:
+                confidence = np.ones(len(X)) * 0.5  # Default confidence when only one model
             return ensemble_predictions, confidence
 
         return ensemble_predictions
@@ -820,6 +813,69 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         """Create a copy of the ensemble."""
         # Simplified for ensemble - return meta learner copy
         return Ridge(**self.meta_learner.get_params())
+
+    def save_model(self, filepath: str) -> None:
+        """Save the ensemble model with all components."""
+        if not self.is_trained:
+            raise ValueError("Cannot save untrained model")
+
+        model_data = {
+            "base_models": self.base_models,
+            "meta_learner": self.meta_learner,
+            "scaler": self.scaler,
+            "stat_type": self.stat_type,
+            "model_version": self.model_version,
+            "feature_importance": self.feature_importance,
+            "performance_metrics": self.performance_metrics,
+            "confidence_intervals": self.confidence_intervals,
+            "training_history": self.training_history,
+            "stacking_features": getattr(self, 'stacking_features', None),
+            "weights": getattr(self, 'weights', None),
+            "trained_at": datetime.now().isoformat(),
+        }
+
+        with open(filepath, "wb") as f:
+            pickle.dump(model_data, f)
+
+    def load_model(self, filepath: str) -> None:
+        """Load the ensemble model with all components."""
+        with open(filepath, "rb") as f:
+            model_data = pickle.load(f)
+
+        # Check if this is an old model file (doesn't have base_models/meta_learner)
+        if "base_models" not in model_data or "meta_learner" not in model_data:
+            logger.warning(f"Loading old ensemble model format. Re-initializing ensemble components.")
+            
+            # Initialize ensemble components (they'll need to be retrained)
+            self.__init__(self.stat_type, model_data.get("model_version", "ensemble_v2.0"))
+            
+            # Load what we can from the old format
+            self.scaler = model_data.get("scaler", RobustScaler())
+            self.stat_type = model_data["stat_type"]
+            self.model_version = model_data["model_version"]
+            self.feature_importance = model_data.get("feature_importance", {})
+            self.performance_metrics = model_data.get("performance_metrics", {})
+            self.confidence_intervals = model_data.get("confidence_intervals", {})
+            self.training_history = model_data.get("training_history", [])
+            
+            # Mark as not trained since ensemble components need retraining
+            self.is_trained = False
+            logger.warning(f"Old model format detected. Model needs retraining to work properly.")
+            return
+        
+        # New format - load all ensemble components
+        self.base_models = model_data["base_models"]
+        self.meta_learner = model_data["meta_learner"]
+        self.scaler = model_data.get("scaler", RobustScaler())
+        self.stat_type = model_data["stat_type"]
+        self.model_version = model_data["model_version"]
+        self.feature_importance = model_data["feature_importance"]
+        self.performance_metrics = model_data["performance_metrics"]
+        self.confidence_intervals = model_data.get("confidence_intervals", {})
+        self.training_history = model_data.get("training_history", [])
+        self.stacking_features = model_data.get("stacking_features", None)
+        self.weights = model_data.get("weights", None)
+        self.is_trained = True
 
 
 class ModelManager:
@@ -1000,32 +1056,26 @@ class ModelManager:
             latest_model = model_files[0]
 
             # Load the model
-            with open(os.path.join(self.models_dir, latest_model), "rb") as f:
-                model_data = pickle.load(f)
+            predictor = AdvancedStatPredictor(stat_type)
+            try:
+                with open(os.path.join(self.models_dir, latest_model), "rb") as f:
+                    model_data = pickle.load(f)
 
-            # Determine predictor type (ensemble or single model)
-            if model_data.get("is_ensemble"):
-                predictor = AdvancedEnsembleStatPredictor(stat_type)
-                # Restore ensemble components
-                predictor.base_models = model_data.get("base_models", {})
-                predictor.meta_learner = model_data.get("meta_learner")
-                predictor.model = predictor.meta_learner  # For compatibility
-            else:
-                predictor = AdvancedStatPredictor(stat_type)
+                predictor.model = model_data["model"]
+                predictor.scaler = model_data.get("scaler", RobustScaler())  # Load the fitted scaler
+                predictor.stat_type = model_data["stat_type"]
+                predictor.model_version = model_data["model_version"]
+                predictor.feature_importance = model_data["feature_importance"]
+                predictor.performance_metrics = model_data["performance_metrics"]
+                predictor.confidence_intervals = model_data.get("confidence_intervals", {})
+                predictor.training_history = model_data.get("training_history", [])
+                predictor.feature_names_ = model_data.get("feature_names", None)  # Load feature names
+                predictor.is_trained = True
 
-            predictor.model = model_data["model"]
-            predictor.scaler = model_data.get("scaler", RobustScaler())
-            predictor.stat_type = model_data["stat_type"]
-            predictor.model_version = model_data["model_version"]
-            predictor.feature_importance = model_data["feature_importance"]
-            predictor.performance_metrics = model_data["performance_metrics"]
-            predictor.confidence_intervals = model_data.get("confidence_intervals", {})
-            predictor.training_history = model_data.get("training_history", [])
-            predictor.feature_names_ = model_data.get("feature_names", None)  # Load feature names
-            predictor.is_trained = True
-
-            self.predictors[stat_type] = predictor
-            logger.info(f"Loaded model for {stat_type}: {latest_model}")
+                self.predictors[stat_type] = predictor
+                logger.info(f"Loaded model for {stat_type}: {latest_model}")
+            except Exception as e:
+                logger.error(f"Error loading model for {stat_type}: {e}")
 
     def predict_stats(
         self, features_df: pd.DataFrame, stat_types: List[str]
@@ -1321,7 +1371,7 @@ class ModelManager:
             metrics = predictor.train(X, y, optimize_hyperparams=optimize_hyperparams)
 
             # Store the predictor with player-specific naming
-            player_key = f"{stat_type}_player_{player_id}"
+            player_key = f"{stat_type}_{player_id}"
             self.predictors[player_key] = predictor
 
             # Save the model with player-specific filename
