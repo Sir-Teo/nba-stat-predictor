@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from tqdm import tqdm
+import numpy as np
 
 # Add src to path
 sys.path.append("src")
@@ -399,6 +400,11 @@ class InteractiveNBADashboard:
                 print("❌ Could not generate predictions")
                 return
 
+            # Apply age-aware post-processing
+            predictions_df = self._apply_age_aware_adjustments(
+                predictions_df, features_df, player_id, player_name
+            )
+
             # Display predictions
             self._display_player_predictions(
                 player_name, team_info["full_name"], predictions_df
@@ -411,10 +417,119 @@ class InteractiveNBADashboard:
             print(f"❌ Error making prediction: {e}")
             self.logger.error(f"Prediction error: {e}")
 
+    def _apply_age_aware_adjustments(
+        self, predictions_df: pd.DataFrame, features_df: pd.DataFrame, 
+        player_id: int, player_name: str
+    ) -> pd.DataFrame:
+        """Apply age-aware adjustments to make predictions more realistic."""
+        try:
+            # Get player age if available
+            player_age = features_df.get("player_age", pd.Series([30])).iloc[0]
+            
+            # Get recent form data
+            recent_stats = self._get_recent_performance(player_id, games=10)
+            
+            adjusted_predictions = predictions_df.copy()
+            
+            print(f"   📊 Player Age: {player_age:.1f} years")
+            
+            # Special handling for aging veterans (35+)
+            if player_age >= 35:
+                print(f"   ⚠️  Applying age adjustments for veteran player...")
+                
+                for stat in self.stat_types:
+                    pred_col = f"predicted_{stat}"
+                    conf_col = f"confidence_{stat}"
+                    
+                    if pred_col in adjusted_predictions.columns:
+                        original_pred = adjusted_predictions[pred_col].iloc[0]
+                        recent_avg = recent_stats.get(f"{stat}_avg", original_pred)
+                        
+                        # For 40+ players, heavily weight recent performance
+                        if player_age >= 40:
+                            # Weight: 80% recent form, 20% model prediction
+                            age_weight = 0.8
+                            
+                            # Special caps for 40+ players
+                            if stat == "pts" and original_pred > 30:
+                                # Cap points at more realistic levels
+                                capped_pred = min(original_pred, recent_avg + 5)
+                                adjusted_predictions.loc[0, pred_col] = capped_pred
+                                print(f"   🎯 Capped {stat.upper()} prediction: {original_pred:.1f} → {capped_pred:.1f}")
+                            
+                        # For 35-39 players, moderate adjustment
+                        elif player_age >= 35:
+                            age_weight = 0.6  # 60% recent form, 40% model prediction
+                        
+                        else:
+                            age_weight = 0.4  # 40% recent form, 60% model prediction
+                        
+                        # Apply age-weighted adjustment
+                        if recent_avg > 0:
+                            age_adjusted_pred = (age_weight * recent_avg + 
+                                               (1 - age_weight) * original_pred)
+                            adjusted_predictions.loc[0, pred_col] = age_adjusted_pred
+                        
+                        # Lower confidence for aging players due to higher variance
+                        if conf_col in adjusted_predictions.columns:
+                            original_conf = adjusted_predictions[conf_col].iloc[0]
+                            age_penalty = max(0.1, (player_age - 30) * 0.05)  # 5% confidence penalty per year after 30
+                            adjusted_conf = max(0.3, original_conf - age_penalty)
+                            adjusted_predictions.loc[0, conf_col] = adjusted_conf
+            
+            return adjusted_predictions
+            
+        except Exception as e:
+            self.logger.error(f"Error in age adjustments: {e}")
+            return predictions_df
+
+    def _get_recent_performance(self, player_id: int, games: int = 10) -> Dict:
+        """Get recent performance stats for a player."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            
+            query = """
+                SELECT * FROM player_games 
+                WHERE player_id = ?
+                ORDER BY game_date DESC
+                LIMIT ?
+            """
+            
+            df = pd.read_sql_query(query, conn, params=(player_id, games))
+            conn.close()
+            
+            if df.empty:
+                return {}
+            
+            stats = {}
+            for stat in ["pts", "reb", "ast", "stl", "blk"]:
+                if stat in df.columns:
+                    stats[f"{stat}_avg"] = df[stat].mean()
+                    stats[f"{stat}_trend"] = self._calculate_trend(df[stat].values)
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Error getting recent performance: {e}")
+            return {}
+
+    def _calculate_trend(self, values):
+        """Calculate trend in recent performance."""
+        if len(values) < 3:
+            return 0
+        
+        # Simple linear trend
+        x = np.arange(len(values))
+        try:
+            slope = np.polyfit(x, values, 1)[0]
+            return slope
+        except:
+            return 0
+
     def _display_player_predictions(
         self, player_name: str, team_name: str, predictions_df: pd.DataFrame
     ):
-        """Display formatted predictions."""
+        """Display formatted predictions with age context."""
         print(f"\n🎯 PREDICTIONS: {player_name} vs {team_name}")
         print("=" * 60)
 
@@ -446,50 +561,84 @@ class InteractiveNBADashboard:
                 )
 
         print("=" * 60)
+        
+        # Add age-related context if player is aging
+        if "player_age" in predictions_df.columns:
+            age = predictions_df["player_age"].iloc[0]
+            if age >= 35:
+                print(f"\n⚠️  Age-Adjusted Predictions (Player Age: {age:.1f})")
+                print("   Predictions weighted toward recent performance due to player age.")
+                if age >= 40:
+                    print("   🔸 40+ Player: Heavy emphasis on current form over career averages.")
+                elif age >= 38:
+                    print("   🔹 Veteran Player: Moderate adjustment for age-related decline.")
 
     def _show_player_context(
         self, player_id: int, player_name: str, opponent_team_id: int
     ):
-        """Show additional context about player's recent performance."""
+        """Show player context including recent performance and age insights."""
         try:
             conn = sqlite3.connect(self.db_path)
 
-            # Recent games average
-            recent_games = pd.read_sql_query(
-                """
-                SELECT pts, reb, ast, stl, blk, game_date
-                FROM player_games 
+            # Recent games performance
+            recent_query = """
+                SELECT * FROM player_games 
                 WHERE player_id = ?
-                ORDER BY game_date DESC 
+                ORDER BY game_date DESC
                 LIMIT 10
-            """,
-                conn,
-                params=[player_id],
-            )
+            """
 
-            if not recent_games.empty:
+            recent_df = pd.read_sql_query(recent_query, conn, params=(player_id,))
+
+            if not recent_df.empty:
                 print(f"\n📊 {player_name}'s Recent Performance (Last 10 games):")
-                for stat in self.stat_types:
-                    if stat in recent_games.columns:
-                        avg_value = recent_games[stat].mean()
-                        print(f"   {stat.upper():>5}: {avg_value:5.1f} avg")
+                
+                # Calculate averages
+                recent_stats = {}
+                for stat in ["pts", "reb", "ast", "stl", "blk"]:
+                    if stat in recent_df.columns:
+                        recent_stats[stat] = recent_df[stat].mean()
 
-            # Head-to-head if available
-            h2h_games = pd.read_sql_query(
-                """
-                SELECT pts, reb, ast, stl, blk, game_date, matchup
+                # Display recent averages
+                for stat in ["pts", "reb", "ast", "stl", "blk"]:
+                    if stat in recent_stats:
+                        print(f"   {stat.upper():>5}: {recent_stats[stat]:5.1f} avg")
+
+                # Age-related insights
+                age = self._get_player_age_from_db(player_id)
+                if age:
+                    print(f"\n🎂 Age Context:")
+                    print(f"   Player Age: {age:.1f} years")
+                    
+                    if age >= 40:
+                        print("   🔸 At 40+, this player is in exceptional territory for NBA longevity")
+                        print("   🔸 Predictions favor recent form over historical career averages")
+                        print("   🔸 Performance may be more variable game-to-game")
+                    elif age >= 35:
+                        print("   🔹 Veteran player - age-related adjustments applied to predictions")
+                        print("   🔹 Recent performance weighted more heavily than career averages")
+
+            # Show matchup history if available
+            h2h_query = """
+                SELECT game_date, pts, reb, ast, matchup 
                 FROM player_games 
-                WHERE player_id = ? AND matchup LIKE ?
-                ORDER BY game_date DESC 
+                WHERE player_id = ? AND (
+                    matchup LIKE ? OR matchup LIKE ?
+                )
+                ORDER BY game_date DESC
                 LIMIT 5
-            """,
-                conn,
-                params=[player_id, f"%{opponent_team_id}%"],
+            """
+
+            opponent_pattern1 = f"%{opponent_team_id}%"
+            opponent_pattern2 = f"%vs%{opponent_team_id}%"  # Alternative pattern
+
+            h2h_df = pd.read_sql_query(
+                h2h_query, conn, params=(player_id, opponent_pattern1, opponent_pattern2)
             )
 
-            if not h2h_games.empty:
-                print(f"\n📈 Head-to-Head vs {opponent_team_id} (Recent games):")
-                for _, game in h2h_games.iterrows():
+            if not h2h_df.empty:
+                print(f"\n📈 Recent Head-to-Head Performance:")
+                for _, game in h2h_df.head(3).iterrows():
                     print(
                         f"   {game['game_date']}: {game['pts']} pts, {game['reb']} reb, {game['ast']} ast"
                     )
@@ -497,7 +646,20 @@ class InteractiveNBADashboard:
             conn.close()
 
         except Exception as e:
-            self.logger.error(f"Error showing context: {e}")
+            print(f"   ⚠️ Could not load player context: {e}")
+            self.logger.error(f"Error showing player context: {e}")
+
+    def _get_player_age_from_db(self, player_id: int) -> Optional[float]:
+        """Get player age if available in features."""
+        try:
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            
+            # Use the same age calculation from feature engineer
+            age = self.feature_engineer._calculate_player_age(player_id, current_date)
+            return age
+        except:
+            return None
 
     def _get_player_ids_from_names(self, player_names: List[str]) -> List[int]:
         """Convert player names to IDs."""

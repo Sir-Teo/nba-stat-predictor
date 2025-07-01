@@ -15,6 +15,20 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# Known birthdates for major players (can be expanded)
+PLAYER_BIRTHDATES = {
+    2544: "1984-12-30",  # LeBron James
+    203507: "1994-12-06",  # Giannis Antetokounmpo
+    201939: "1988-03-14",  # Stephen Curry
+    203999: "1995-02-19",  # Nikola Jokic
+    1628369: "1998-03-03",  # Jayson Tatum
+    1629029: "1999-02-28",  # Luka Doncic
+    203076: "1993-03-11",  # Anthony Davis
+    203954: "1994-03-16",  # Joel Embiid
+    201566: "1988-11-12",  # Russell Westbrook
+    203081: "1990-07-15",  # Damian Lillard
+}
+
 
 class AdvancedFeatureEngineer:
     """Creates and processes advanced features for NBA stat prediction."""
@@ -26,6 +40,81 @@ class AdvancedFeatureEngineer:
         self.label_encoders = {}
         self.team_clusters = {}
         self.pace_adjustments = {}
+
+    def _calculate_player_age(self, player_id: int, target_date: str) -> float:
+        """Calculate player age in years as of target date."""
+        # Check if we have the birthdate
+        if player_id not in PLAYER_BIRTHDATES:
+            # Estimate age based on first NBA game (rough approximation)
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT MIN(game_date) FROM player_games WHERE player_id = ?",
+                    (player_id,)
+                )
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result and result[0]:
+                    # Assume player was 20 when they first played (average rookie age)
+                    first_game_date = datetime.strptime(result[0], "%Y-%m-%d")
+                    target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+                    years_since_rookie = (target_dt - first_game_date).days / 365.25
+                    estimated_age = 20 + years_since_rookie
+                    return min(estimated_age, 45)  # Cap at reasonable maximum
+                else:
+                    return 27  # Average NBA player age
+            except:
+                return 27  # Default fallback
+        
+        # Calculate exact age from birthdate
+        birthdate = datetime.strptime(PLAYER_BIRTHDATES[player_id], "%Y-%m-%d")
+        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+        age = (target_dt - birthdate).days / 365.25
+        return age
+
+    def _create_age_features(self, player_id: int, target_date: str, df: pd.DataFrame) -> Dict:
+        """Create age-related features for prediction."""
+        features = {}
+        
+        age = self._calculate_player_age(player_id, target_date)
+        features["player_age"] = age
+        
+        # Age categories
+        features["is_rookie"] = 1 if age <= 22 else 0
+        features["is_young"] = 1 if 22 < age <= 26 else 0
+        features["is_prime"] = 1 if 26 < age <= 30 else 0
+        features["is_veteran"] = 1 if 30 < age <= 34 else 0
+        features["is_aging_vet"] = 1 if age > 34 else 0
+        
+        # Age-related decline factors
+        if age > 30:
+            # Apply decline curve for aging players
+            decline_factor = max(0.7, 1 - ((age - 30) * 0.04))  # 4% decline per year after 30
+            features["age_decline_factor"] = decline_factor
+            
+            # For very old players (38+), apply more aggressive decline
+            if age >= 38:
+                steep_decline_factor = max(0.5, 1 - ((age - 38) * 0.08))  # 8% decline per year after 38
+                features["age_decline_factor"] = min(features["age_decline_factor"], steep_decline_factor)
+        else:
+            features["age_decline_factor"] = 1.0
+        
+        # Age-adjusted recent form weight
+        # Older players should be judged more on recent form than career averages
+        if age > 34:
+            features["recent_form_weight"] = 0.8  # 80% weight on recent games
+        elif age > 30:
+            features["recent_form_weight"] = 0.6  # 60% weight on recent games  
+        else:
+            features["recent_form_weight"] = 0.4  # 40% weight on recent games
+            
+        # Career longevity features
+        features["years_experience"] = max(0, age - 19)  # Assume entered NBA at 19
+        features["is_superhuman_longevity"] = 1 if age > 37 and len(df) > 10 else 0  # Still playing at high level past 37
+        
+        return features
 
     def create_features_for_player(
         self,
@@ -59,6 +148,9 @@ class AdvancedFeatureEngineer:
             return pd.DataFrame()
 
         features = {}
+
+        # *** NEW: Add age-based features first ***
+        features.update(self._create_age_features(player_id, target_date, df))
 
         # Core rolling statistics with multiple windows (reduced for speed)
         features.update(

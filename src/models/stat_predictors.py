@@ -122,7 +122,7 @@ class AdvancedStatPredictor:
         return metrics
 
     def predict(self, X: pd.DataFrame, return_confidence: bool = False) -> np.ndarray:
-        """Make predictions with optional confidence intervals."""
+        """Make predictions with optional confidence intervals and age adjustments."""
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
 
@@ -135,12 +135,56 @@ class AdvancedStatPredictor:
         X_scaled = self.scaler.transform(X_aligned)
         predictions = self.model.predict(X_scaled)
 
+        # Apply age-based adjustments if age features are available
+        predictions = self._apply_age_adjustments(predictions, X_aligned)
+
         if return_confidence:
             # Calculate prediction intervals using bootstrap or ensemble variance
             confidence = self._calculate_prediction_confidence(X_scaled)
             return predictions, confidence
 
         return predictions
+
+    def _apply_age_adjustments(self, predictions: np.ndarray, X: pd.DataFrame) -> np.ndarray:
+        """Apply age-based adjustments to predictions for more realistic results."""
+        if "player_age" not in X.columns:
+            return predictions
+            
+        adjusted_predictions = predictions.copy()
+        
+        for i, age in enumerate(X["player_age"]):
+            if age > 34:  # Aging veteran
+                # Get decline factor if available
+                decline_factor = X.get("age_decline_factor", pd.Series([1.0])).iloc[i] if i < len(X) else 1.0
+                recent_form_weight = X.get("recent_form_weight", pd.Series([0.8])).iloc[i] if i < len(X) else 0.8
+                
+                # Apply decline factor more aggressively for points (scoring typically declines first)
+                if self.stat_type == "pts":
+                    if age >= 40:  # Special case for 40+ players
+                        # Cap points at reasonable levels for 40+ players
+                        if predictions[i] > 30:
+                            adjusted_predictions[i] = min(predictions[i], 25 + np.random.normal(0, 2))
+                        adjusted_predictions[i] *= decline_factor * 0.85  # Additional 15% reduction for 40+
+                    elif age >= 38:
+                        if predictions[i] > 35:
+                            adjusted_predictions[i] = min(predictions[i], 28 + np.random.normal(0, 3))
+                        adjusted_predictions[i] *= decline_factor * 0.9   # Additional 10% reduction for 38+
+                    else:
+                        adjusted_predictions[i] *= decline_factor
+                
+                # Apply lighter decline for other stats
+                elif self.stat_type in ["reb", "ast"]:
+                    adjusted_predictions[i] *= decline_factor * 0.95  # Lighter decline for rebounds/assists
+                
+                elif self.stat_type in ["stl", "blk"]:
+                    adjusted_predictions[i] *= decline_factor * 0.9   # Moderate decline for defensive stats
+                    
+            elif age > 30:  # Regular veteran
+                # Light decline factor
+                decline_factor = X.get("age_decline_factor", pd.Series([1.0])).iloc[i] if i < len(X) else 1.0
+                adjusted_predictions[i] *= decline_factor
+        
+        return adjusted_predictions
 
     def _evaluate_model(self, X: pd.DataFrame, y: pd.Series, cv) -> Dict[str, float]:
         """Comprehensive model evaluation."""
