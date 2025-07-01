@@ -360,8 +360,8 @@ class InteractiveNBADashboard:
     ):
         """Make quick prediction with basic features."""
         try:
-            # Load models
-            self.model_manager.load_models(self.stat_types)
+            # Load player-specific models if available, fall back to general models
+            self.model_manager.load_models(self.stat_types, player_id=player_id)
             
             # Get current date for prediction
             game_date = datetime.now().strftime("%Y-%m-%d")
@@ -415,21 +415,21 @@ class InteractiveNBADashboard:
     ):
         """Make comprehensive prediction with all advanced features."""
         try:
-            # Load models
-            self.model_manager.load_models(self.stat_types)
+            # Load player-specific models if available, fall back to general models
+            self.model_manager.load_models(self.stat_types, player_id=player_id)
             
             # Get current date for prediction
             game_date = datetime.now().strftime("%Y-%m-%d")
             
             print("   [FEATURES] Creating comprehensive feature set (530+)...")
-            # Create enhanced features with ALL improvements
+            # Create enhanced features with parameters matching player-specific training
             features_df = self.feature_engineer.create_features_for_player(
                 player_id,
                 game_date,
                 opponent_team_id=team_info["id"],
                 include_h2h_features=True,
                 include_advanced_features=True,
-                lookback_games=20
+                lookback_games=15  # Match player-specific training parameters
             )
             
             if features_df.empty:
@@ -674,8 +674,8 @@ class InteractiveNBADashboard:
         print(f"\n🧠 Generating predictions...")
 
         try:
-            # Load models
-            self.model_manager.load_models(self.stat_types)
+            # Load player-specific models if available, fall back to general models
+            self.model_manager.load_models(self.stat_types, player_id=player_id)
 
             # Get current date for prediction
             game_date = datetime.now().strftime("%Y-%m-%d")

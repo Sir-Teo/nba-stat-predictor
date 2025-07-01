@@ -662,6 +662,9 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         """Train ensemble with stacking."""
         X_scaled = self.scaler.fit_transform(X)
         X_scaled = pd.DataFrame(X_scaled, columns=X.columns, index=X.index)
+        
+        # Store feature names for later alignment
+        self.feature_names_ = list(X.columns)
 
         # Time series split for stacking (reduced from 5 to 3 folds)
         tscv = TimeSeriesSplit(n_splits=3)
@@ -769,6 +772,10 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         if not hasattr(self, 'meta_learner') or self.meta_learner is None:
             raise ValueError("Ensemble meta-learner not properly loaded")
 
+        # Align features if feature names are available
+        if hasattr(self, 'feature_names_') and self.feature_names_ is not None:
+            X = self._align_features(X, self.feature_names_)
+
         X_scaled = self.scaler.transform(X)
 
         # Generate base model predictions
@@ -831,6 +838,7 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
             "training_history": self.training_history,
             "stacking_features": getattr(self, 'stacking_features', None),
             "weights": getattr(self, 'weights', None),
+            "feature_names": getattr(self, 'feature_names_', None),  # Save feature names for alignment
             "trained_at": datetime.now().isoformat(),
         }
 
@@ -875,6 +883,7 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         self.training_history = model_data.get("training_history", [])
         self.stacking_features = model_data.get("stacking_features", None)
         self.weights = model_data.get("weights", None)
+        self.feature_names_ = model_data.get("feature_names", None)  # Restore feature names
         self.is_trained = True
 
 
@@ -1035,13 +1044,41 @@ class ModelManager:
                     stat_type, training_data, "random_forest", False
                 )
 
-    def load_models(self, stat_types: List[str]) -> None:
-        """Load the latest models for specified stat types."""
+    def load_models(self, stat_types: List[str], player_id: int = None) -> None:
+        """Load the latest models for specified stat types, optionally player-specific."""
         for stat_type in stat_types:
+            # Look for player-specific models first if player_id is provided
+            if player_id is not None:
+                player_pattern = f"{stat_type}_player_{player_id}_"
+                player_files = [
+                    f
+                    for f in os.listdir(self.models_dir)
+                    if f.startswith(player_pattern) and f.endswith(".pkl")
+                ]
+                
+                if player_files:
+                    # Sort by creation time and get the latest player-specific model
+                    player_files.sort(
+                        key=lambda x: os.path.getctime(os.path.join(self.models_dir, x)),
+                        reverse=True,
+                    )
+                    latest_model = player_files[0]
+                    
+                    # Load player-specific model
+                    try:
+                        predictor = self._load_model_file(latest_model, stat_type)
+                        if predictor:
+                            self.predictors[stat_type] = predictor
+                            logger.info(f"Loaded model for {stat_type}: {latest_model}")
+                            continue
+                    except Exception as e:
+                        logger.error(f"Error loading player-specific model for {stat_type}: {e}")
+            
+            # Fall back to general models
             model_files = [
                 f
                 for f in os.listdir(self.models_dir)
-                if f.startswith(f"{stat_type}_") and f.endswith(".pkl")
+                if f.startswith(f"{stat_type}_") and f.endswith(".pkl") and "player_" not in f
             ]
 
             if not model_files:
@@ -1055,27 +1092,61 @@ class ModelManager:
             )
             latest_model = model_files[0]
 
-            # Load the model
-            predictor = AdvancedStatPredictor(stat_type)
+            # Load the general model
             try:
-                with open(os.path.join(self.models_dir, latest_model), "rb") as f:
-                    model_data = pickle.load(f)
-
-                predictor.model = model_data["model"]
-                predictor.scaler = model_data.get("scaler", RobustScaler())  # Load the fitted scaler
-                predictor.stat_type = model_data["stat_type"]
-                predictor.model_version = model_data["model_version"]
-                predictor.feature_importance = model_data["feature_importance"]
-                predictor.performance_metrics = model_data["performance_metrics"]
-                predictor.confidence_intervals = model_data.get("confidence_intervals", {})
-                predictor.training_history = model_data.get("training_history", [])
-                predictor.feature_names_ = model_data.get("feature_names", None)  # Load feature names
-                predictor.is_trained = True
-
-                self.predictors[stat_type] = predictor
-                logger.info(f"Loaded model for {stat_type}: {latest_model}")
+                predictor = self._load_model_file(latest_model, stat_type)
+                if predictor:
+                    self.predictors[stat_type] = predictor
+                    logger.info(f"Loaded model for {stat_type}: {latest_model}")
             except Exception as e:
                 logger.error(f"Error loading model for {stat_type}: {e}")
+
+    def _load_model_file(self, model_filename: str, stat_type: str):
+        """Load a specific model file and return the appropriate predictor instance."""
+        model_path = os.path.join(self.models_dir, model_filename)
+        
+        try:
+            with open(model_path, "rb") as f:
+                model_data = pickle.load(f)
+                
+            # Determine model type from filename or data
+            if "ensemble" in model_filename:
+                # Check if it's an ensemble model by looking for ensemble-specific data
+                if "base_models" in model_data and "meta_learner" in model_data:
+                    predictor = AdvancedEnsembleStatPredictor(stat_type)
+                    predictor.load_model(model_path)
+                    return predictor
+                else:
+                    # Old format ensemble model, treat as basic predictor
+                    predictor = AdvancedStatPredictor(stat_type)
+            elif "lightgbm" in model_filename or "lgb" in model_filename:
+                predictor = LightGBMStatPredictor(stat_type)
+            elif "catboost" in model_filename or "cat" in model_filename:
+                predictor = CatBoostStatPredictor(stat_type)
+            elif "neural" in model_filename or "nn" in model_filename:
+                predictor = NeuralNetworkStatPredictor(stat_type)
+            else:
+                # Default to basic predictor
+                predictor = AdvancedStatPredictor(stat_type)
+            
+            # For non-ensemble models, use the basic loading logic
+            if not isinstance(predictor, AdvancedEnsembleStatPredictor):
+                predictor.model = model_data.get("model")
+                predictor.scaler = model_data.get("scaler", RobustScaler())
+                predictor.stat_type = model_data["stat_type"]
+                predictor.model_version = model_data["model_version"]
+                predictor.feature_importance = model_data.get("feature_importance", {})
+                predictor.performance_metrics = model_data.get("performance_metrics", {})
+                predictor.confidence_intervals = model_data.get("confidence_intervals", {})
+                predictor.training_history = model_data.get("training_history", [])
+                predictor.feature_names_ = model_data.get("feature_names", None)
+                predictor.is_trained = True
+                
+            return predictor
+            
+        except Exception as e:
+            logger.error(f"Error loading model file {model_filename}: {e}")
+            return None
 
     def predict_stats(
         self, features_df: pd.DataFrame, stat_types: List[str]

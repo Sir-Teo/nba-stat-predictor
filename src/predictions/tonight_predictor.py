@@ -42,9 +42,6 @@ class TonightPredictor:
 
         logger.info(f"Found {len(todays_games)} games today")
 
-        # Load models
-        self.model_manager.load_models(self.stat_types)
-
         all_predictions = []
 
         for _, game in todays_games.iterrows():
@@ -63,6 +60,9 @@ class TonightPredictor:
 
             for player_id, player_name in all_players:
                 try:
+                    # Load player-specific models if available, fall back to general models
+                    self.model_manager.load_models(self.stat_types, player_id=player_id)
+                    
                     # Create features for this player
                     features_df = self.feature_engineer.create_features_for_player(
                         player_id, game_date
