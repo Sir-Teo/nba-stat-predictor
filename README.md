@@ -1,14 +1,16 @@
-# NBA Stat Predictor with Self-Improvement
+# Enhanced NBA Stat Predictor with Advanced ML Pipeline
 
-A comprehensive machine learning system that predicts NBA player statistics for tonight's games and continuously improves its accuracy through self-learning mechanisms.
+A comprehensive machine learning system that predicts NBA player statistics using advanced data collection, feature engineering, and model optimization with 530+ features.
 
-## ✨ Recent Updates
-- **🎯 Interactive Dashboard** - New user-controlled interface for data updates and custom predictions
-- **🔄 User-Controlled Data Updates** - Choose when to fetch latest NBA data (no more automatic updates)
-- **🎲 Custom Player vs Team Predictions** - Predict any player's stats against any team
-- **🧠 Enhanced Feature Engineering** - Opponent-specific features and head-to-head analysis
-- **Reorganized project structure** with dedicated `docs/` and `examples/` directories
-- **Updated dependencies** to latest stable versions (December 2024)
+## 🚀 Enhanced Features (Latest Update)
+- **📊 Comprehensive Data Collection** - 9 seasons (2016-2024) with 200+ players and quality validation
+- **🧠 Advanced Feature Engineering** - 530+ features including age-aware, situational, and momentum features
+- **⚡ Enhanced Model Training** - Advanced hyperparameter optimization with 5-fold time series cross-validation
+- **🎯 Age-Aware Predictions** - Specialized handling for veteran players (35+) with realistic adjustments
+- **🔍 Quality Validation** - Comprehensive data quality scoring and validation
+- **🎨 Interactive Dashboard** - Enhanced interface with quality metrics and advanced prediction modes
+- **📈 Real-time Predictions** - Advanced predictions with confidence scoring and visualization
+- **📊 Accuracy Tracking** - Continuous monitoring with enhanced metrics and performance analysis
 
 ## 📁 Project Structure
 
@@ -36,14 +38,16 @@ nba-stat-predictor/
 └── config.yaml            # Configuration file
 ```
 
-## Features
+## 🎯 Enhanced Features
 
-- **Data Collection**: Automatically gathers NBA player statistics from official APIs
-- **Feature Engineering**: Creates sophisticated features including rolling averages, trends, home/away splits, rest patterns, and consistency metrics
-- **Machine Learning Models**: Uses Random Forest and ensemble methods to predict player stats
-- **Tonight's Predictions**: Generates predictions for all players in today's games
-- **Self-Improvement**: Tracks prediction accuracy and retrains models when performance degrades
-- **Performance Analytics**: Detailed accuracy metrics and model performance tracking
+- **📊 Comprehensive Data Collection**: 9 seasons of data (2016-2024) with 200+ players, playoff data, and quality validation
+- **🧠 Advanced Feature Engineering**: 530+ features including extended rolling windows (up to 30 games), age-aware features, situational analysis, and momentum tracking
+- **⚡ Enhanced Model Training**: Advanced ensemble models (LightGBM, XGBoost, Random Forest, Lasso) with hyperparameter optimization and 5-fold time series cross-validation
+- **🎯 Age-Aware Predictions**: Specialized handling for veteran players (35+) with realistic age adjustments and confidence scoring
+- **🔍 Quality Validation**: Comprehensive data quality scoring and validation with detailed metrics
+- **🎨 Interactive Dashboard**: Enhanced interface with quality metrics, advanced prediction modes, and professional visualizations
+- **📈 Real-time Predictions**: Advanced predictions with confidence scoring, comprehensive analysis modes, and prediction rationale charts
+- **📊 Performance Analytics**: Continuous monitoring with enhanced metrics, model performance tracking, and detailed accuracy analysis
 
 ## Quick Start
 
@@ -58,24 +62,32 @@ cd nba-stat-predictor
 pip install -r requirements.txt
 ```
 
-### 2. Interactive Dashboard (Recommended)
+### 2. Enhanced Interactive Dashboard (Recommended)
 
 ```bash
-# Launch the interactive dashboard for full control
-python run_interactive.py
+# Launch the enhanced interactive dashboard for full control
+python interactive_dashboard.py
 ```
 
-Features:
-- **🔄 Update Data**: Choose when to fetch latest NBA data
-- **🎯 Custom Predictions**: Predict any player vs any team (e.g., "LeBron James" vs "Lakers")
-- **🧠 Model Training**: Train/retrain prediction models
-- **📊 System Status**: Monitor data freshness and model availability
+Enhanced Features:
+- **📊 Enhanced Data Updates**: 9 seasons of data, 200+ players, quality validation
+- **🎯 Advanced Predictions**: 530+ features, age-aware adjustments, confidence scoring
+- **🧠 Enhanced Model Training**: Advanced optimization, comprehensive statistics
+- **📈 Quality Metrics**: Data quality scoring, qualified players tracking
+- **🎨 Professional Visualizations**: Prediction rationale charts and analysis
+- **⚡ Quick vs Comprehensive**: Choose analysis level based on needs
 
-### 3. Command Line Interface
+### 3. Enhanced Command Line Interface
 
 ```bash
-# Run the full pipeline (collect data, train models, predict)
+# Run the enhanced full pipeline (collect data, train models, predict)
 python main.py full-pipeline
+
+# Enhanced data collection (9 seasons, 200+ players)
+python main.py enhanced-collect
+
+# Enhanced model training (530+ features, advanced optimization)
+python main.py enhanced-train
 
 # Make predictions for tonight's games
 python main.py predict

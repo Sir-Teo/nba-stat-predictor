@@ -71,8 +71,8 @@ class AdvancedStatPredictor:
         self, X: pd.DataFrame, y: pd.Series, optimize_hyperparams: bool = True
     ) -> Dict[str, float]:
         """Train the model with advanced evaluation and hyperparameter optimization."""
-        # Time series split for temporal validation (reduced from 5 to 3 folds)
-        tscv = TimeSeriesSplit(n_splits=3)
+        # Time series split for temporal validation (increased for better validation)
+        tscv = TimeSeriesSplit(n_splits=5)
 
         # Scale features and store feature names
         X_scaled = self.scaler.fit_transform(X)
@@ -497,15 +497,18 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             )
 
     def _get_param_space(self):
-        """Get parameter space for hyperparameter optimization."""
+        """Get parameter space for hyperparameter optimization with enhanced parameters."""
         return {
-            "num_leaves": Integer(10, 100),
-            "learning_rate": Real(0.01, 0.3, prior="log-uniform"),
-            "feature_fraction": Real(0.5, 1.0),
-            "bagging_fraction": Real(0.5, 1.0),
-            "min_child_samples": Integer(5, 50),
-            "lambda_l1": Real(0, 10),
-            "lambda_l2": Real(0, 10),
+            "n_estimators": Integer(200, 1500),      # Increased range
+            "num_leaves": Integer(31, 150),          # Increased range
+            "learning_rate": Real(0.005, 0.2, prior="log-uniform"),  # Lower learning rate for better generalization
+            "feature_fraction": Real(0.7, 1.0),      # Higher minimum
+            "bagging_fraction": Real(0.7, 1.0),      # Higher minimum
+            "min_child_samples": Integer(15, 100),   # Increased for better generalization
+            "max_depth": Integer(4, 15),             # Added max_depth
+            "lambda_l1": Real(0, 15),                # Increased range
+            "lambda_l2": Real(0, 15),                # Increased range
+            "bagging_freq": Integer(1, 10),          # Added bagging frequency
         }
 
     def _create_model_copy(self):
@@ -521,7 +524,7 @@ class LightGBMStatPredictor(AdvancedStatPredictor):
             search = BayesSearchCV(
                 lgb.LGBMRegressor(random_state=42, verbosity=-1),
                 self._get_param_space(),
-                n_iter=10,  # Reduced from 20 to 10 iterations
+                n_iter=25,  # Increased for better optimization
                 cv=cv,
                 scoring="neg_mean_absolute_error",
                 random_state=42,
@@ -630,16 +633,17 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
     def __init__(self, stat_type: str, model_version: str = "ensemble_v2.0"):
         super().__init__(stat_type, model_version)
 
-        # Base models for ensemble (reduced complexity for speed)
+        # Base models for ensemble with enhanced configuration
         self.base_models = {
             "rf": RandomForestRegressor(
-                n_estimators=50, max_depth=8, random_state=42
-            ),  # Reduced from 100 estimators
+                n_estimators=100, max_depth=12, min_samples_split=5, random_state=42
+            ),  # Increased complexity for better performance
             "xgb": xgb.XGBRegressor(
-                n_estimators=50, max_depth=4, random_state=42
-            ),  # Reduced complexity
+                n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42
+            ),  # Increased complexity
             "ridge": Ridge(alpha=1.0, random_state=42),
-            "elastic": ElasticNet(alpha=0.1, random_state=42),
+            "elastic": ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=42),
+            "lasso": Lasso(alpha=0.1, random_state=42),  # Added Lasso
         }
 
         # Add advanced models if available
@@ -666,8 +670,8 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         # Store feature names for later alignment
         self.feature_names_ = list(X.columns)
 
-        # Time series split for stacking (reduced from 5 to 3 folds)
-        tscv = TimeSeriesSplit(n_splits=3)
+        # Time series split for stacking (increased for better validation)
+        tscv = TimeSeriesSplit(n_splits=5)
 
         # Generate stacking features
         tqdm.write(

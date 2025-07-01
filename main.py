@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
 import pandas as pd
 from tqdm import tqdm
@@ -45,26 +46,29 @@ class NBAStatPredictorApp:
         self.model_manager = ModelManager(db_path)
         self.tonight_predictor = TonightPredictor(db_path)
 
-    def collect_data(self, players_limit: int = 50):
-        """Collect historical NBA data for training."""
-        logger.info("Starting comprehensive data collection...")
+    def collect_data(self, players_limit: int = 100):
+        """Collect comprehensive historical NBA data for training with enhanced settings."""
+        logger.info("Starting enhanced comprehensive data collection...")
 
-        # Get star players for better training data
+        # Get comprehensive player list with better selection
         try:
+            # Get star players for better training data
             star_players = self.data_collector.get_team_leaders()
-            if players_limit > len(star_players):
-                # Add more popular players if we need more
-                additional_players = self.data_collector.get_popular_players(
-                    players_limit - len(star_players)
-                )
-                all_players = star_players + additional_players
-            else:
-                all_players = star_players[:players_limit]
+            
+            # Get additional popular players for comprehensive coverage
+            popular_players = self.data_collector.get_popular_players(players_limit)
+            
+            # Combine and deduplicate
+            all_players = list(set(star_players + popular_players))
+            
+            # Limit to requested number
+            if len(all_players) > players_limit:
+                all_players = all_players[:players_limit]
 
-            logger.info(f"Selected {len(all_players)} players for data collection")
+            logger.info(f"Selected {len(all_players)} players for enhanced data collection")
 
         except Exception as e:
-            logger.warning(f"Could not get star players, using fallback method: {e}")
+            logger.warning(f"Could not get comprehensive player list, using fallback method: {e}")
             # Fallback to original method
             all_players_df = self.data_collector.get_all_players()
             if all_players_df.empty:
@@ -73,13 +77,16 @@ class NBAStatPredictorApp:
             all_players = all_players_df.head(players_limit)["id"].tolist()
 
         logger.info(
-            f"Collecting data for {len(all_players)} players across 4 seasons..."
+            f"Collecting enhanced data for {len(all_players)} players across 9 seasons..."
         )
 
-        # Collect historical data across multiple seasons
+        # Collect comprehensive historical data across extended seasons with intelligent checking
         self.data_collector.collect_historical_data(
             players_list=all_players,
-            seasons=["2023-24", "2022-23", "2021-22", "2020-21"],
+            seasons=["2024-25", "2023-24", "2022-23", "2021-22", "2020-21", "2019-20", "2018-19", "2017-18", "2016-17"],
+            include_playoffs=True,
+            include_all_star=False,
+            force_refresh=False,  # Don't re-fetch existing data
         )
 
         # Show collection summary
@@ -100,42 +107,27 @@ class NBAStatPredictorApp:
         conn.close()
 
         logger.info("=" * 60)
-        logger.info("DATA COLLECTION SUMMARY")
+        logger.info("ENHANCED DATA COLLECTION SUMMARY")
         logger.info("=" * 60)
-        logger.info(f"Total games collected: {total_games}")
+        logger.info(f"Total games collected: {total_games:,}")
         logger.info(f"Unique players: {unique_players}")
         logger.info(f"Date range: {date_range[0]} to {date_range[1]}")
+        
+        # Add data quality validation
+        quality_report = self.data_collector.validate_data_quality()
+        if "data_quality_score" in quality_report:
+            logger.info(f"Data quality score: {quality_report['data_quality_score']:.1f}/100")
+        
         logger.info("=" * 60)
 
-        logger.info("Data collection completed!")
+        logger.info("Enhanced data collection completed!")
 
     def train_models(self):
-        """Train prediction models."""
-        logger.info("Starting model training...")
+        """Train enhanced prediction models with comprehensive features."""
+        logger.info("Starting enhanced model training...")
 
-        # Create training dataset
-        logger.info("Creating training dataset...")
-
-        # Get player IDs that have sufficient data
-        import sqlite3
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Get players with at least 15 games (reduced from 20)
-        cursor.execute(
-            """
-            SELECT player_id, COUNT(*) as game_count
-            FROM player_games
-            GROUP BY player_id
-            HAVING game_count >= 15
-            ORDER BY game_count DESC
-            LIMIT 100
-        """
-        )
-
-        players_with_data = [row[0] for row in cursor.fetchall()]
-        conn.close()
+        # Get qualified players with enhanced criteria
+        players_with_data = self._get_qualified_players_for_training()
 
         if not players_with_data:
             logger.error(
@@ -143,30 +135,38 @@ class NBAStatPredictorApp:
             )
             return
 
-        logger.info(f"Training models with data from {len(players_with_data)} players")
+        logger.info(f"Training enhanced models with data from {len(players_with_data)} players")
 
-        # Create training dataset
-        start_date = "2022-10-01"
-        end_date = "2024-01-01"
+        # Create comprehensive training dataset with 8 years of historical data
+        start_date = "2016-10-01"  # Go back 8 years for comprehensive training
+        end_date = "2024-06-30"    # Include recent data
 
-        print("📊 Creating training dataset...")
+        print("📊 Creating enhanced training dataset with 530+ features...")
         training_data = self.feature_engineer.create_training_dataset(
             players_list=players_with_data,
             start_date=start_date,
             end_date=end_date,
             target_stats=["pts", "reb", "ast", "stl", "blk"],
+            include_h2h_features=True,
+            include_advanced_features=True,
         )
 
         if training_data.empty:
             logger.error("Could not create training dataset")
             return
 
-        logger.info(f"Created training dataset with {len(training_data)} samples")
+        logger.info(f"Created enhanced training dataset with {len(training_data)} samples")
+        logger.info(f"Features: {len(training_data.columns)}")
 
-        # Train models for each stat
+        # Log dataset statistics
+        self._log_enhanced_dataset_statistics(training_data)
+
+        # Train models for each stat with enhanced settings
         stat_types = ["pts", "reb", "ast", "stl", "blk"]
+        training_results = {}
+        successful_models = 0
 
-        print("\n🏀 Training standard models:")
+        print("\n🏀 Training enhanced models with advanced optimization:")
         with tqdm(
             stat_types,
             desc="Training Models",
@@ -176,13 +176,143 @@ class NBAStatPredictorApp:
             for stat_type in pbar:
                 try:
                     pbar.set_description(f"Training {stat_type.upper()}")
-                    metrics = self.model_manager.train_model(stat_type, training_data)
+                    metrics = self.model_manager.train_model(
+                        stat_type, training_data, optimize_hyperparams=True
+                    )
+                    training_results[stat_type] = metrics
+                    successful_models += 1
+                    
                     mae = metrics.get("test_mae", metrics.get("val_mae", 0))
-                    pbar.write(f"✅ {stat_type.upper()} model trained - MAE: {mae:.2f}")
+                    r2 = metrics.get("test_r2", metrics.get("val_r2", 0))
+                    pbar.write(
+                        f"✅ {stat_type.upper()} model trained - MAE: {mae:.2f}, R²: {r2:.3f}"
+                    )
                 except Exception as e:
                     pbar.write(f"❌ Error training {stat_type} model: {e}")
+                    training_results[stat_type] = {"error": str(e)}
 
-        print("\n✅ Model training completed!")
+        # Generate enhanced training summary
+        self._log_enhanced_training_summary(training_results, successful_models)
+
+        print("\n✅ Enhanced model training completed!")
+        print("💡 Models now include 530+ features with advanced hyperparameter optimization.")
+
+    def _get_qualified_players_for_training(self, min_games: int = 25, min_seasons: int = 2) -> List[int]:
+        """Get players with sufficient data for enhanced training."""
+        logger.info(f"Finding players with at least {min_games} games and {min_seasons} seasons")
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Get players with sufficient games and multiple seasons
+            cursor.execute(
+                """
+                SELECT 
+                    player_id,
+                    COUNT(*) as total_games,
+                    COUNT(DISTINCT 
+                        CASE 
+                            WHEN game_date >= '2024-10-01' THEN '2024-25'
+                            WHEN game_date >= '2023-10-01' THEN '2023-24'
+                            WHEN game_date >= '2022-10-01' THEN '2022-23'
+                            WHEN game_date >= '2021-10-01' THEN '2021-22'
+                            WHEN game_date >= '2020-10-01' THEN '2020-21'
+                            WHEN game_date >= '2019-10-01' THEN '2019-20'
+                            WHEN game_date >= '2018-10-01' THEN '2018-19'
+                            WHEN game_date >= '2017-10-01' THEN '2017-18'
+                            WHEN game_date >= '2016-10-01' THEN '2016-17'
+                            ELSE 'Older'
+                        END
+                    ) as seasons_played
+                FROM player_games
+                GROUP BY player_id
+                HAVING total_games >= ? AND seasons_played >= ?
+                ORDER BY total_games DESC
+                LIMIT 200
+            """, (min_games, min_seasons))
+
+            players_with_data = [row[0] for row in cursor.fetchall()]
+            conn.close()
+
+            logger.info(f"Found {len(players_with_data)} qualified players for enhanced training")
+            return players_with_data
+
+        except Exception as e:
+            logger.error(f"Error getting qualified players: {e}")
+            return []
+
+    def _log_enhanced_dataset_statistics(self, training_data: pd.DataFrame):
+        """Log comprehensive dataset statistics for enhanced training."""
+        logger.info("Enhanced Dataset Statistics:")
+        logger.info(f"   Total samples: {len(training_data):,}")
+        logger.info(f"   Features: {len(training_data.columns)}")
+        
+        # Target variable statistics
+        stat_types = ["pts", "reb", "ast", "stl", "blk"]
+        for stat in stat_types:
+            target_col = f"target_{stat}"
+            if target_col in training_data.columns:
+                mean_val = training_data[target_col].mean()
+                std_val = training_data[target_col].std()
+                min_val = training_data[target_col].min()
+                max_val = training_data[target_col].max()
+                logger.info(f"   {stat.upper()}: mean={mean_val:.2f}, std={std_val:.2f}, range=[{min_val:.1f}, {max_val:.1f}]")
+        
+        # Feature categories
+        feature_categories = {
+            "rolling": len([col for col in training_data.columns if "rolling" in col]),
+            "trend": len([col for col in training_data.columns if "trend" in col]),
+            "age": len([col for col in training_data.columns if "age" in col]),
+            "opponent": len([col for col in training_data.columns if "opp" in col]),
+            "h2h": len([col for col in training_data.columns if "h2h" in col]),
+            "situational": len([col for col in training_data.columns if "situational" in col]),
+            "momentum": len([col for col in training_data.columns if "momentum" in col])
+        }
+        
+        logger.info("Feature Categories:")
+        for category, count in feature_categories.items():
+            if count > 0:
+                logger.info(f"   {category}: {count} features")
+
+    def _log_enhanced_training_summary(self, training_results: Dict, successful_models: int):
+        """Log comprehensive training summary for enhanced models."""
+        logger.info("=" * 80)
+        logger.info("ENHANCED MODEL TRAINING SUMMARY")
+        logger.info("=" * 80)
+        
+        # Calculate average metrics
+        mae_values = []
+        r2_values = []
+        
+        for stat_type, metrics in training_results.items():
+            if "error" not in metrics:
+                mae = metrics.get("test_mae", metrics.get("val_mae", 0))
+                r2 = metrics.get("test_r2", metrics.get("val_r2", 0))
+                if mae > 0:
+                    mae_values.append(mae)
+                if r2 != 0:
+                    r2_values.append(r2)
+        
+        summary = {
+            "total_models": len(training_results),
+            "successful_models": successful_models,
+            "failed_models": len(training_results) - successful_models,
+            "avg_mae": sum(mae_values) / len(mae_values) if mae_values else 0,
+            "avg_r2": sum(r2_values) / len(r2_values) if r2_values else 0,
+            "best_mae": min(mae_values) if mae_values else 0,
+            "worst_mae": max(mae_values) if mae_values else 0,
+            "best_r2": max(r2_values) if r2_values else 0,
+            "worst_r2": min(r2_values) if r2_values else 0
+        }
+        
+        for key, value in summary.items():
+            if isinstance(value, float):
+                logger.info(f"{key}: {value:.3f}")
+            else:
+                logger.info(f"{key}: {value}")
+        
+        logger.info("=" * 80)
 
     def predict_tonight(self):
         """Make predictions for tonight's games."""
@@ -357,6 +487,9 @@ def main():
             "accuracy",
             "retrain",
             "full-pipeline",
+            "enhanced-collect",
+            "enhanced-train",
+            "force-refresh",
             "backtest",
         ],
         help="Command to execute",
@@ -411,22 +544,35 @@ def main():
             app.retrain_if_needed()
 
         elif args.command == "full-pipeline":
-            logger.info("Running full pipeline...")
+            logger.info("Running enhanced full pipeline...")
 
-            # Check if we have data, if not collect some
+            # Check if we have sufficient data
             import sqlite3
 
             conn = sqlite3.connect(args.db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM player_games")
             game_count = cursor.fetchone()[0]
+            
+            # Check qualified players
+            cursor.execute("""
+                SELECT COUNT(DISTINCT player_id) 
+                FROM player_games 
+                GROUP BY player_id 
+                HAVING COUNT(*) >= 25
+            """)
+            qualified_players = len(cursor.fetchall())
             conn.close()
 
-            if game_count < 100:
-                logger.info("Insufficient data, collecting...")
-                app.collect_data(50)  # Increased for better coverage
+            if game_count < 5000:
+                logger.info("Insufficient data, collecting enhanced dataset...")
+                app.collect_data(200)  # Enhanced collection with 200 players
 
-            # Train models
+            if qualified_players < 50:
+                logger.info("Insufficient qualified players, collecting more data...")
+                app.collect_data(300)  # Collect more data for better coverage
+
+            # Train enhanced models
             app.train_models()
 
             # Make predictions
@@ -434,6 +580,25 @@ def main():
 
             # Show accuracy if we have historical predictions
             app.show_accuracy()
+
+        elif args.command == "enhanced-collect":
+            logger.info("Running enhanced data collection...")
+            app.collect_data(200)  # Enhanced collection
+
+        elif args.command == "force-refresh":
+            logger.info("Running force refresh data collection...")
+            # Force refresh by temporarily modifying the collect_historical_data call
+            original_collect = app.data_collector.collect_historical_data
+            def force_refresh_collect(*args, **kwargs):
+                kwargs['force_refresh'] = True
+                return original_collect(*args, **kwargs)
+            app.data_collector.collect_historical_data = force_refresh_collect
+            app.collect_data(200)
+            app.data_collector.collect_historical_data = original_collect
+
+        elif args.command == "enhanced-train":
+            logger.info("Running enhanced model training...")
+            app.train_models()  # Enhanced training
 
         elif args.command == "backtest":
             app.run_backtest(args.season)

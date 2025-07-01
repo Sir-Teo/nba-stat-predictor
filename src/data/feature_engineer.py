@@ -153,10 +153,10 @@ class AdvancedFeatureEngineer:
         # *** NEW: Add age-based features first ***
         features.update(self._create_age_features(player_id, target_date, df))
 
-        # Core rolling statistics with multiple windows (reduced for speed)
+        # Core rolling statistics with extended windows for better patterns
         features.update(
-            self._create_rolling_stats(df, windows=[3, 5, 10])
-        )  # Reduced from [3, 5, 10, 15, 20]
+            self._create_rolling_stats(df, windows=[3, 5, 10, 15, 20, 25, 30])
+        )  # Extended windows for comprehensive analysis
 
         # Advanced form and momentum features
         features.update(self._create_advanced_form_features(df))

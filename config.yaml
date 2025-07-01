@@ -9,12 +9,17 @@ database:
 
 # Data collection settings
 data_collection:
-  default_players_limit: 50
-  max_players_limit: 200
-  seasons_to_collect: ["2023-24", "2022-23", "2021-22", "2020-21"]
-  min_games_per_player: 15
+  default_players_limit: 100  # Increased for better coverage
+  max_players_limit: 300      # Increased for comprehensive data
+  seasons_to_collect: ["2024-25", "2023-24", "2022-23", "2021-22", "2020-21", "2019-20", "2018-19", "2017-18"]
+  min_games_per_player: 20    # Increased for more reliable models
   api_delay_seconds: 0.6
-  max_retries: 3
+  max_retries: 5              # Increased for reliability
+  # Enhanced data collection settings
+  include_playoffs: true      # Include playoff data for better patterns
+  include_all_star: false     # Exclude all-star games (different intensity)
+  min_seasons_per_player: 2   # Require multiple seasons for better patterns
+  max_historical_years: 8     # Go back 8 years for comprehensive history
 
 # Model training settings
 models:
@@ -32,8 +37,10 @@ models:
   # Advanced hyperparameter optimization
   hyperparameter_optimization:
     enabled: true
-    n_iterations: 30  # Bayesian optimization iterations
+    n_iterations: 50  # Increased for better optimization
     cv_folds: 5
+    early_stopping: true
+    patience: 10
     
   # Model-specific configurations
   random_forest:
@@ -73,9 +80,13 @@ models:
     random_state: 42
     
   validation:
-    test_size: 0.2
+    test_size: 0.15  # Reduced for more training data
     cv_folds: 5
     time_series_cv: true  # Use time series cross-validation
+    # Enhanced validation settings
+    temporal_split: true    # Ensure temporal ordering
+    min_train_size: 1000    # Minimum training samples
+    validation_strategy: "time_series"  # Use time series validation
     
   retraining:
     performance_threshold: 0.10  # Retrain if MAE increases by 10%
@@ -90,11 +101,16 @@ predictions:
   
 # Advanced feature engineering settings
 features:
-  rolling_windows: [3, 5, 10, 15, 20]
-  trend_periods: [3, 5, 10, 15]
+  rolling_windows: [3, 5, 10, 15, 20, 25, 30]  # Extended windows for better patterns
+  trend_periods: [3, 5, 10, 15, 20, 25]         # Extended trend analysis
   home_away_splits: true
   rest_analysis: true
   consistency_metrics: true
+  # Enhanced feature settings
+  seasonal_patterns: true    # Capture seasonal trends
+  career_progression: true   # Track career development
+  injury_impact: true        # Account for injury history
+  team_changes: true         # Track team changes impact
   
   # Advanced feature sets
   opponent_strength: true
@@ -111,8 +127,11 @@ features:
   missing_value_strategy: "median"  # median, mean, or zero
   
   # Lookback periods
-  default_lookback_games: 20
-  max_lookback_games: 40
+  default_lookback_games: 30  # Increased for better context
+  max_lookback_games: 60      # Increased for comprehensive analysis
+  # Enhanced lookback settings
+  adaptive_lookback: true      # Adjust based on player age/experience
+  minimum_lookback: 15         # Minimum games for analysis
   
 # Logging settings
 logging:

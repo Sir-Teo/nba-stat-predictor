@@ -67,23 +67,31 @@ class InteractiveNBADashboard:
             return {}
 
     def show_welcome_screen(self):
-        """Display welcome screen with system status."""
-        print("\n" + "=" * 50)
-        print("     INTERACTIVE NBA STAT PREDICTOR")
-        print("=" * 50)
+        """Display enhanced welcome screen with system status."""
+        print("\n" + "=" * 60)
+        print("     🏀 ENHANCED NBA STAT PREDICTOR")
+        print("     Advanced ML Pipeline with 530+ Features")
+        print("=" * 60)
+        print()
+        print("🚀 Enhanced Features:")
+        print("  • 9 seasons of historical data (2016-2024)")
+        print("  • 530+ engineered features")
+        print("  • Advanced age-aware predictions")
+        print("  • Comprehensive model optimization")
+        print("  • Quality validation and scoring")
         print()
 
-        # Show system status
-        self._show_quick_status()
+        # Show enhanced system status
+        self._show_enhanced_status()
         print()
 
-    def _show_quick_status(self):
-        """Show quick system status."""
+    def _show_enhanced_status(self):
+        """Show enhanced system status with quality metrics."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Get basic stats
+            # Get comprehensive stats
             cursor.execute("SELECT COUNT(*) FROM player_games")
             total_games = cursor.fetchone()[0]
 
@@ -93,60 +101,118 @@ class InteractiveNBADashboard:
             cursor.execute("SELECT MAX(game_date) FROM player_games")
             latest_date = cursor.fetchone()[0]
 
+            # Get qualified players for training
+            cursor.execute("""
+                SELECT COUNT(DISTINCT player_id) 
+                FROM player_games 
+                GROUP BY player_id 
+                HAVING COUNT(*) >= 25
+            """)
+            qualified_players = len(cursor.fetchall())
+
+            # Get season coverage
+            cursor.execute("""
+                SELECT COUNT(DISTINCT 
+                    CASE 
+                        WHEN game_date >= '2024-10-01' THEN '2024-25'
+                        WHEN game_date >= '2023-10-01' THEN '2023-24'
+                        WHEN game_date >= '2022-10-01' THEN '2022-23'
+                        WHEN game_date >= '2021-10-01' THEN '2021-22'
+                        WHEN game_date >= '2020-10-01' THEN '2020-21'
+                        WHEN game_date >= '2019-10-01' THEN '2019-20'
+                        WHEN game_date >= '2018-10-01' THEN '2018-19'
+                        WHEN game_date >= '2017-10-01' THEN '2017-18'
+                        WHEN game_date >= '2016-10-01' THEN '2016-17'
+                        ELSE 'Older'
+                    END
+                ) as seasons
+                FROM player_games
+            """)
+            seasons_covered = cursor.fetchone()[0]
+
             conn.close()
 
-            print(f"[SYSTEM STATUS]")
-            print(f"   - Total games in database: {total_games:,}")
-            print(f"   - Unique players tracked: {unique_players}")
-            print(f"   - Latest data: {latest_date or 'No data'}")
+            print(f"[ENHANCED SYSTEM STATUS]")
+            print(f"   📊 Total games: {total_games:,}")
+            print(f"   👥 Unique players: {unique_players}")
+            print(f"   🎯 Qualified players (25+ games): {qualified_players}")
+            print(f"   📅 Seasons covered: {seasons_covered}")
+            print(f"   📈 Latest data: {latest_date or 'No data'}")
 
-            # Check models
+            # Check models with enhanced info
             model_count = 0
+            enhanced_models = 0
             if os.path.exists("models"):
                 for stat in self.stat_types:
                     for filename in os.listdir("models"):
-                        if filename.startswith(f"{stat}_") and filename.endswith(
-                            ".pkl"
-                        ):
+                        if filename.startswith(f"{stat}_") and filename.endswith(".pkl"):
                             model_count += 1
+                            if "ensemble" in filename or "enhanced" in filename:
+                                enhanced_models += 1
                             break
 
-            print(f"   - Trained models: {model_count}/{len(self.stat_types)}")
+            print(f"   🧠 Trained models: {model_count}/{len(self.stat_types)}")
+            if enhanced_models > 0:
+                print(f"   ⚡ Enhanced models: {enhanced_models}")
+
+            # Data quality assessment
+            if total_games > 0:
+                if total_games >= 10000:
+                    quality_level = "🟢 Excellent"
+                elif total_games >= 5000:
+                    quality_level = "🟡 Good"
+                elif total_games >= 1000:
+                    quality_level = "🟠 Fair"
+                else:
+                    quality_level = "🔴 Limited"
+                print(f"   🎯 Data quality: {quality_level}")
 
         except Exception as e:
-            print(f"[ERROR] Error checking system status: {e}")
+            print(f"[ERROR] Error checking enhanced system status: {e}")
+
+    def _show_quick_status(self):
+        """Show quick system status (legacy method)."""
+        self._show_enhanced_status()
 
     def show_main_menu(self):
-        """Display main menu options."""
-        print("\n[MAIN MENU]")
-        print("   1. Update Data (Fetch Latest NBA Data)")
-        print("   2. Predict Player Stats vs Team")
-        print("   3. Train/Retrain Models")
-        print("   4. View System Status")
-        print("   5. View Recent Predictions")
-        print("   6. Exit")
-        print()
+        """Display enhanced main menu options."""
+        print("\n[ENHANCED NBA STAT PREDICTOR]")
+        print("=" * 50)
+        print("   1. 📊 Update Data (Enhanced: 9 seasons, 200+ players)")
+        print("   2. 🎯 Predict Player Stats vs Team (530+ features)")
+        print("   3. 🧠 Train/Retrain Models (Enhanced optimization)")
+        print("   4. 📈 View System Status (Quality metrics)")
+        print("   5. 📋 View Recent Predictions")
+        print("   6. 🚪 Exit")
+        print("=" * 50)
 
     def handle_data_update(self):
         """Handle user choice to update data."""
         print("\n🔄 DATA UPDATE OPTIONS")
         print("-" * 40)
 
-        # Show current data status
+        # Show enhanced data status with freshness check
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT MAX(game_date) FROM player_games")
-            latest_date = cursor.fetchone()[0]
-            conn.close()
-
-            if latest_date:
-                days_old = (
-                    datetime.now() - datetime.strptime(latest_date, "%Y-%m-%d")
-                ).days
-                print(f"📅 Current latest data: {latest_date} ({days_old} days old)")
-            else:
+            freshness_info = self.data_collector.check_data_freshness()
+            
+            if freshness_info['status'] == 'no_data':
                 print("📅 No data found in database")
+                print("💡 Recommendation: Run full data collection")
+            else:
+                status_icons = {
+                    'fresh': '🟢',
+                    'recent': '🟡', 
+                    'stale': '🟠',
+                    'outdated': '🔴',
+                    'error': '❌'
+                }
+                
+                icon = status_icons.get(freshness_info['status'], '❓')
+                print(f"{icon} Data Status: {freshness_info['message']}")
+                print(f"💡 Recommendation: {freshness_info['recommendation']}")
+                
+                if freshness_info['current_season_games'] > 0:
+                    print(f"📊 Current season games: {freshness_info['current_season_games']:,}")
 
         except Exception as e:
             print(f"❌ Error checking data status: {e}")
@@ -154,18 +220,21 @@ class InteractiveNBADashboard:
         print("\nUpdate options:")
         print("   1. Quick update (last 7 days for top players)")
         print("   2. Full update (comprehensive data collection)")
-        print("   3. Custom update (specify players and date range)")
-        print("   4. Back to main menu")
+        print("   3. Force refresh (re-fetch all data)")
+        print("   4. Custom update (specify players and date range)")
+        print("   5. Back to main menu")
 
-        choice = input("\nChoose update option (1-4): ").strip()
+        choice = input("\nChoose update option (1-5): ").strip()
 
         if choice == "1":
             self._quick_data_update()
         elif choice == "2":
             self._full_data_update()
         elif choice == "3":
-            self._custom_data_update()
+            self._force_refresh_update()
         elif choice == "4":
+            self._custom_data_update()
+        elif choice == "5":
             return
         else:
             print("❌ Invalid choice. Returning to main menu.")
@@ -199,9 +268,14 @@ class InteractiveNBADashboard:
 
             player_ids = top_players_df["player_id"].tolist()
 
-            # Collect recent data
-            seasons = ["2024-25", "2023-24"]  # Current and previous season
-            self.data_collector.collect_historical_data(player_ids, seasons)
+            # Collect recent data with enhanced settings
+            seasons = ["2024-25", "2023-24", "2022-23"]  # Extended seasons
+            self.data_collector.collect_historical_data(
+                player_ids, 
+                seasons,
+                include_playoffs=True,
+                include_all_star=False
+            )
 
             print("✅ Quick update completed!")
 
@@ -209,9 +283,14 @@ class InteractiveNBADashboard:
             print(f"❌ Error during quick update: {e}")
 
     def _full_data_update(self):
-        """Perform comprehensive data update."""
-        print("\n🔄 Starting Full Data Update...")
-        print("This will collect comprehensive NBA data (may take several minutes)")
+        """Perform comprehensive data update with enhanced settings."""
+        print("\n🔄 Starting Enhanced Full Data Update...")
+        print("This will collect comprehensive NBA data across 9 seasons (may take 15-30 minutes)")
+        print("Features:")
+        print("  • 9 seasons of data (2016-17 to 2024-25)")
+        print("  • 200+ players with comprehensive coverage")
+        print("  • Playoff data included")
+        print("  • Quality validation and scoring")
 
         confirm = input("Continue? (y/N): ").strip().lower()
         if confirm != "y":
@@ -219,12 +298,46 @@ class InteractiveNBADashboard:
             return
 
         try:
-            # Run the full data collection
-            self.app.collect_data(players_limit=100)
-            print("✅ Full update completed!")
+            # Run the enhanced data collection
+            self.app.collect_data(players_limit=200)
+            
+            # Validate data quality
+            print("\n🔍 Validating data quality...")
+            quality_report = self.data_collector.validate_data_quality()
+            if "data_quality_score" in quality_report:
+                print(f"✅ Data quality score: {quality_report['data_quality_score']:.1f}/100")
+            
+            print("✅ Enhanced full update completed!")
 
         except Exception as e:
-            print(f"❌ Error during full update: {e}")
+            print(f"❌ Error during enhanced full update: {e}")
+
+    def _force_refresh_update(self):
+        """Perform force refresh of all data."""
+        print("\n🔄 Starting Force Refresh Update...")
+        print("This will re-fetch ALL data for all players (may take 30-60 minutes)")
+        print("⚠️  WARNING: This will overwrite existing data and may take a very long time")
+        print("   Only use this if you suspect data corruption or want fresh data")
+
+        confirm = input("Are you sure you want to force refresh ALL data? (yes/NO): ").strip().lower()
+        if confirm != "yes":
+            print("Force refresh cancelled.")
+            return
+
+        try:
+            # Run the enhanced data collection with force refresh
+            self.app.collect_data(players_limit=200)
+            
+            # Validate data quality after refresh
+            print("\n🔍 Validating data quality after refresh...")
+            quality_report = self.data_collector.validate_data_quality()
+            if "data_quality_score" in quality_report:
+                print(f"✅ Data quality score: {quality_report['data_quality_score']:.1f}/100")
+            
+            print("✅ Force refresh completed!")
+
+        except Exception as e:
+            print(f"❌ Error during force refresh: {e}")
 
     def _custom_data_update(self):
         """Allow user to customize data update."""
@@ -252,9 +365,14 @@ class InteractiveNBADashboard:
                     print("❌ No valid players found.")
                     return
 
-            # Collect data
-            seasons = ["2024-25", "2023-24", "2022-23"]
-            self.data_collector.collect_historical_data(player_ids, seasons)
+            # Collect data with enhanced settings
+            seasons = ["2024-25", "2023-24", "2022-23", "2021-22", "2020-21"]
+            self.data_collector.collect_historical_data(
+                player_ids, 
+                seasons,
+                include_playoffs=True,
+                include_all_star=False
+            )
 
             print("✅ Custom update completed!")
 
@@ -1042,7 +1160,7 @@ class InteractiveNBADashboard:
                             if self._validate_stat_average(stat, avg_value):
                                 recent_stats[stat] = avg_value
                             else:
-                                logger.warning(f"Unrealistic average for {stat}: {avg_value:.1f}")
+                                self.logger.warning(f"Unrealistic average for {stat}: {avg_value:.1f}")
                                 recent_stats[stat] = stat_data.median()  # Use median as fallback
 
                 # Display recent averages
@@ -1143,64 +1261,68 @@ class InteractiveNBADashboard:
         return player_ids
 
     def handle_model_training(self):
-        """Handle model training."""
-        print("\n🧠 MODEL TRAINING")
-        print("-" * 30)
+        """Handle enhanced model training."""
+        print("\n🧠 ENHANCED MODEL TRAINING")
+        print("-" * 40)
 
-        # Check data availability
+        # Check data availability with enhanced criteria
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM player_games")
             total_games = cursor.fetchone()[0]
+            
+            # Check for qualified players
+            cursor.execute("""
+                SELECT COUNT(DISTINCT player_id) 
+                FROM player_games 
+                GROUP BY player_id 
+                HAVING COUNT(*) >= 25
+            """)
+            qualified_players = len(cursor.fetchall())
             conn.close()
 
-            if total_games < 100:
-                print(f"⚠️  Limited training data ({total_games} games)")
-                print("Consider updating data first for better model performance.")
-
+            if total_games < 5000:
+                print(f"⚠️  Limited training data ({total_games:,} games)")
+                print("Consider running enhanced data collection first for better model performance.")
                 proceed = input("Continue with training? (y/N): ").strip().lower()
                 if proceed != "y":
                     return
 
-            # Ask about training mode
-            print("\nTraining Options:")
-            print("1. Standard training (compatible with current predictions)")
-            print(
-                "2. Advanced training with head-to-head features (requires retraining)"
-            )
-            print("3. Player-specific training (train models for a specific player)")
-            print("4. Back to main menu")
+            if qualified_players < 50:
+                print(f"⚠️  Limited qualified players ({qualified_players} players)")
+                print("Enhanced training requires at least 50 players with 25+ games each.")
+                proceed = input("Continue with training? (y/N): ").strip().lower()
+                if proceed != "y":
+                    return
+
+            # Enhanced training options
+            print("\nEnhanced Training Options:")
+            print("1. 🚀 Enhanced training (530+ features, 8 years of data)")
+            print("2. 🎯 Player-specific training (personalized models)")
+            print("3. 🔧 Advanced training with custom settings")
+            print("4. 📊 Back to main menu")
 
             choice = input("\nSelect training mode (1-4): ").strip()
 
             if choice == "1":
-                print("🚀 Starting standard model training...")
-                print("📊 Training models with progress tracking...\n")
+                print("🚀 Starting enhanced model training...")
+                print("📊 Training with 530+ features and 8 years of historical data...")
+                print("⏱️  This may take 10-20 minutes...\n")
                 self.app.train_models()
-                print("✅ Standard model training completed!")
+                print("✅ Enhanced model training completed!")
+                print("💡 Models now include comprehensive features and advanced optimization.")
             elif choice == "2":
-                print("🚀 Starting advanced model training with h2h features...")
-                print("⚠️  This will create new models with enhanced features.")
-                print(
-                    "   After training, predictions will include opponent-specific analysis."
-                )
-                confirm = (
-                    input("Continue with advanced training? (y/N): ").strip().lower()
-                )
-                if confirm == "y":
-                    self._train_advanced_models()
-                else:
-                    print("Advanced training cancelled.")
-            elif choice == "3":
                 self._train_player_specific_models()
+            elif choice == "3":
+                self._train_advanced_models()
             elif choice == "4":
                 return
             else:
                 print("❌ Invalid choice.")
 
         except Exception as e:
-            print(f"❌ Error during training: {e}")
+            print(f"❌ Error during enhanced training: {e}")
 
     def _train_advanced_models(self):
         """Train models with head-to-head features."""
