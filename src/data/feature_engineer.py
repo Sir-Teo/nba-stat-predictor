@@ -568,22 +568,30 @@ class AdvancedFeatureEngineer:
             )
 
             if not def_df.empty and def_df["games_sample"].iloc[0] >= 5:
-                # Defensive efficiency metrics
-                features["opp_def_efficiency"] = def_df["avg_pts_allowed"].iloc[0] / 100  # Normalized
-                features["opp_reb_def_rate"] = def_df["avg_reb_allowed"].iloc[0] / 45  # Normalized
+                # Safe extraction of defensive metrics with None checks
+                avg_pts_allowed = def_df["avg_pts_allowed"].iloc[0] or 112
+                avg_reb_allowed = def_df["avg_reb_allowed"].iloc[0] or 45
+                avg_stl_generated = def_df["avg_stl_generated"].iloc[0] or 8
+                avg_blk_generated = def_df["avg_blk_generated"].iloc[0] or 5
+                
+                # Defensive efficiency metrics with safe division
+                features["opp_def_efficiency"] = avg_pts_allowed / 100  # Normalized
+                features["opp_reb_def_rate"] = avg_reb_allowed / 45  # Normalized
                 features["opp_def_fg_pct"] = def_df["avg_fg_pct_allowed"].iloc[0] or 0.45
                 features["opp_def_3pt_pct"] = def_df["avg_3pt_pct_allowed"].iloc[0] or 0.35
                 
-                # Defensive pressure metrics
-                features["opp_steal_rate"] = def_df["avg_stl_generated"].iloc[0] / 10  # Normalized
-                features["opp_block_rate"] = def_df["avg_blk_generated"].iloc[0] / 6   # Normalized
+                # Defensive pressure metrics with safe division
+                features["opp_steal_rate"] = avg_stl_generated / 10  # Normalized
+                features["opp_block_rate"] = avg_blk_generated / 6   # Normalized
                 
-                # Calculate relative defensive strength
+                # Calculate relative defensive strength with safe division
                 league_avg_pts = 112
                 league_avg_fg = 0.46
                 
-                features["opp_pts_def_relative"] = def_df["avg_pts_allowed"].iloc[0] / league_avg_pts
-                features["opp_fg_def_relative"] = (def_df["avg_fg_pct_allowed"].iloc[0] or 0.46) / league_avg_fg
+                fg_pct_allowed = def_df["avg_fg_pct_allowed"].iloc[0] or 0.46
+                
+                features["opp_pts_def_relative"] = avg_pts_allowed / league_avg_pts
+                features["opp_fg_def_relative"] = fg_pct_allowed / league_avg_fg
                 
             else:
                 # Use league averages as defaults
@@ -612,10 +620,14 @@ class AdvancedFeatureEngineer:
             )
 
             if not pace_df.empty and pace_df["games_played"].iloc[0] >= 3:
-                possessions = pace_df["avg_possessions_approx"].iloc[0]
+                # Safe extraction with None checks
+                possessions = pace_df["avg_possessions_approx"].iloc[0] or 15
+                avg_team_pts = pace_df["avg_team_pts"].iloc[0] or 110
+                avg_team_ast = pace_df["avg_team_ast"].iloc[0] or 25
+                
                 features["opp_team_pace"] = min(max(possessions / 15, 0.8), 1.2)  # Normalized pace
-                features["opp_team_offensive_rating"] = pace_df["avg_team_pts"].iloc[0] / 110  # Normalized
-                features["opp_team_ball_movement"] = pace_df["avg_team_ast"].iloc[0] / 25     # Normalized
+                features["opp_team_offensive_rating"] = avg_team_pts / 110  # Normalized
+                features["opp_team_ball_movement"] = avg_team_ast / 25     # Normalized
             else:
                 features["opp_team_pace"] = 1.0  # Average pace
                 features["opp_team_offensive_rating"] = 1.0
@@ -640,8 +652,16 @@ class AdvancedFeatureEngineer:
             if len(momentum_df) >= 3:
                 recent_scores = momentum_df["team_pts"].values
                 features["opp_team_momentum"] = self._calculate_momentum(recent_scores)
-                features["opp_team_consistency"] = 1.0 / (1.0 + np.std(recent_scores) / np.mean(recent_scores))
-                features["opp_recent_avg_pts"] = np.mean(recent_scores)
+                
+                # Safe consistency calculation to avoid division by zero
+                mean_score = np.mean(recent_scores)
+                std_score = np.std(recent_scores)
+                if mean_score > 0:
+                    features["opp_team_consistency"] = 1.0 / (1.0 + std_score / mean_score)
+                else:
+                    features["opp_team_consistency"] = 0.8  # Default
+                    
+                features["opp_recent_avg_pts"] = mean_score
             else:
                 features["opp_team_momentum"] = 0.0
                 features["opp_team_consistency"] = 0.8
@@ -700,17 +720,24 @@ class AdvancedFeatureEngineer:
             )
 
             if not opponent_def_df.empty:
-                features["opp_def_pts_allowed"] = opponent_def_df["avg_pts_allowed"].iloc[0]
-                features["opp_def_reb_allowed"] = opponent_def_df["avg_reb_allowed"].iloc[0]
-                features["opp_def_ast_allowed"] = opponent_def_df["avg_ast_allowed"].iloc[0]
-                features["opp_def_stl_allowed"] = opponent_def_df["avg_stl_allowed"].iloc[0]
-                features["opp_def_blk_allowed"] = opponent_def_df["avg_blk_allowed"].iloc[0]
+                # Safely extract values with None checks
+                pts_allowed = opponent_def_df["avg_pts_allowed"].iloc[0] or 112
+                reb_allowed = opponent_def_df["avg_reb_allowed"].iloc[0] or 43
+                ast_allowed = opponent_def_df["avg_ast_allowed"].iloc[0] or 25
+                stl_allowed = opponent_def_df["avg_stl_allowed"].iloc[0] or 8
+                blk_allowed = opponent_def_df["avg_blk_allowed"].iloc[0] or 5
                 
-                # Calculate defensive ratings (lower is better defense)
+                features["opp_def_pts_allowed"] = pts_allowed
+                features["opp_def_reb_allowed"] = reb_allowed
+                features["opp_def_ast_allowed"] = ast_allowed
+                features["opp_def_stl_allowed"] = stl_allowed
+                features["opp_def_blk_allowed"] = blk_allowed
+                
+                # Calculate defensive ratings with safe division
                 league_avg_pts = 112  # Approximate NBA average
-                features["opp_def_rating_pts"] = opponent_def_df["avg_pts_allowed"].iloc[0] / league_avg_pts
-                features["opp_def_rating_reb"] = opponent_def_df["avg_reb_allowed"].iloc[0] / 43  # Avg rebounds
-                features["opp_def_rating_ast"] = opponent_def_df["avg_ast_allowed"].iloc[0] / 25  # Avg assists
+                features["opp_def_rating_pts"] = pts_allowed / league_avg_pts
+                features["opp_def_rating_reb"] = reb_allowed / 43  # Avg rebounds
+                features["opp_def_rating_ast"] = ast_allowed / 25  # Avg assists
             else:
                 # League average defaults
                 features["opp_def_pts_allowed"] = 112
