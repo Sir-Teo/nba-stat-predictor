@@ -29,18 +29,28 @@ class PredictionVisualizer:
         plt.rcParams.update({
             'figure.figsize': (16, 12),
             'font.size': 11,
-            'axes.titlesize': 14,
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans', 'sans-serif'],
+            'axes.titlesize': 15,
             'axes.labelsize': 12,
             'xtick.labelsize': 10,
             'ytick.labelsize': 10,
             'legend.fontsize': 10,
-            'figure.titlesize': 16,
+            'figure.titlesize': 17,
             'axes.grid': True,
-            'grid.alpha': 0.3,
+            'grid.alpha': 0.2,
+            'grid.linewidth': 0.8,
             'axes.spines.top': False,
             'axes.spines.right': False,
+            'axes.spines.left': True,
+            'axes.spines.bottom': True,
+            'axes.linewidth': 1.2,
             'figure.facecolor': 'white',
-            'axes.facecolor': 'white'
+            'axes.facecolor': '#f8f9fa',
+            'savefig.facecolor': 'white',
+            'savefig.edgecolor': 'none',
+            'savefig.bbox': 'tight',
+            'savefig.dpi': 300
         })
 
     def create_prediction_rationale_chart(
@@ -57,15 +67,16 @@ class PredictionVisualizer:
         
         self.setup_plotting_style()
         
-        # Create figure with improved layout
-        fig = plt.figure(figsize=(18, 14))
-        gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 0.8], hspace=0.3, wspace=0.2)
+        # Create figure with enhanced layout and professional colors
+        fig = plt.figure(figsize=(20, 16))
+        gs = fig.add_gridspec(3, 2, height_ratios=[1.2, 1.2, 1], hspace=0.25, wspace=0.15)
         
-        # Main title
+        # Enhanced main title with modern styling
         title = f"NBA Prediction Analysis: {player_name}"
         if opponent_name:
             title += f" vs {opponent_name}"
-        fig.suptitle(title, fontsize=16, fontweight='bold', y=0.96)
+        fig.suptitle(title, fontsize=18, fontweight='bold', y=0.965, 
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor='#1f77b4', alpha=0.1))
         
         # 1. Recent Performance Trend (top left)
         ax1 = fig.add_subplot(gs[0, 0])
@@ -127,19 +138,33 @@ class PredictionVisualizer:
             # Reverse to chronological order
             df = df.iloc[::-1].reset_index(drop=True)
             
-            # Plot trends for key stats
+            # Professional color palette
+            colors = {
+                'pts': '#e74c3c',    # Strong red for points
+                'reb': '#3498db',    # Blue for rebounds  
+                'ast': '#2ecc71',    # Green for assists
+                'stl': '#f39c12',    # Orange for steals
+                'blk': '#9b59b6'     # Purple for blocks
+            }
+            
+            # Plot trends for key stats with enhanced styling
             x = range(len(df))
             
-            ax.plot(x, df['pts'], 'o-', label='Points', linewidth=2, markersize=6, color='#1f77b4')
-            ax.plot(x, df['reb'], 's-', label='Rebounds', linewidth=2, markersize=6, color='#ff7f0e')
-            ax.plot(x, df['ast'], '^-', label='Assists', linewidth=2, markersize=6, color='#2ca02c')
+            ax.plot(x, df['pts'], 'o-', label='Points', linewidth=3, markersize=8, 
+                   color=colors['pts'], markerfacecolor='white', markeredgewidth=2)
+            ax.plot(x, df['reb'], 's-', label='Rebounds', linewidth=3, markersize=7, 
+                   color=colors['reb'], markerfacecolor='white', markeredgewidth=2)
+            ax.plot(x, df['ast'], '^-', label='Assists', linewidth=3, markersize=8, 
+                   color=colors['ast'], markerfacecolor='white', markeredgewidth=2)
             
-            # Add trend lines
+            # Add enhanced trend lines
             if len(df) > 3:
                 z_pts = np.polyfit(x, df['pts'], 1)
                 p_pts = np.poly1d(z_pts)
-                trend_text = f"PTS Trend: {z_pts[0]:+.1f}/game"
-                ax.plot(x, p_pts(x), '--', alpha=0.7, color='red', label=trend_text)
+                trend_direction = "↗" if z_pts[0] > 0.1 else "↘" if z_pts[0] < -0.1 else "→"
+                trend_text = f"Points Trend: {z_pts[0]:+.1f}/game {trend_direction}"
+                ax.plot(x, p_pts(x), '--', alpha=0.8, color=colors['pts'], 
+                       linewidth=2, label=trend_text)
             
             ax.set_title("Recent Performance Trend (Last 20 Games)", fontweight='bold')
             ax.set_xlabel("Games Ago (Most Recent ->)")
@@ -179,11 +204,15 @@ class PredictionVisualizer:
             x = np.arange(len(stats))
             width = 0.35
             
-            # Plot bars
+            # Enhanced color scheme for bars
+            recent_color = '#3498db'  # Professional blue
+            pred_color = '#e74c3c'    # Professional red
+            
+            # Plot bars with enhanced styling
             bars1 = ax.bar(x - width/2, recent_avgs, width, label='Recent Form (10 games)', 
-                          alpha=0.8, color='skyblue')
+                          alpha=0.85, color=recent_color, edgecolor='white', linewidth=1.5)
             bars2 = ax.bar(x + width/2, predictions, width, label='Age-Adjusted Prediction', 
-                          alpha=0.8, color='orange')
+                          alpha=0.85, color=pred_color, edgecolor='white', linewidth=1.5)
             
             ax.set_title("Prediction vs Recent Form", fontweight='bold')
             ax.set_xlabel("Statistics")
@@ -438,10 +467,19 @@ class PredictionVisualizer:
                 predictions.append(0)
                 confidences.append(0.3)
         
-        # Color bars by confidence level
-        colors = ['#ff4444' if c < 0.4 else '#ffaa00' if c < 0.6 else '#44aa44' for c in confidences]
+        # Enhanced color scheme by confidence level
+        def get_confidence_color(confidence):
+            if confidence < 0.4:
+                return '#e74c3c'    # Red for low confidence
+            elif confidence < 0.6:
+                return '#f39c12'    # Orange for medium confidence  
+            else:
+                return '#27ae60'    # Green for high confidence
         
-        bars = ax1.bar(stat_labels, predictions, color=colors, alpha=0.7, edgecolor='black', linewidth=1)
+        colors = [get_confidence_color(c) for c in confidences]
+        
+        bars = ax1.bar(stat_labels, predictions, color=colors, alpha=0.8, 
+                      edgecolor='white', linewidth=2)
         ax1.set_title("Predicted Stats", fontweight='bold')
         ax1.set_ylabel("Value")
         ax1.grid(True, alpha=0.3, axis='y')
@@ -460,9 +498,9 @@ class PredictionVisualizer:
             width = 0.35
             
             bars1 = ax2.bar(x - width/2, recent_values, width, label='Recent (10 games)', 
-                           alpha=0.7, color='lightblue', edgecolor='black')
+                           alpha=0.8, color='#3498db', edgecolor='white', linewidth=1.5)
             bars2 = ax2.bar(x + width/2, predictions, width, label='Prediction', 
-                           alpha=0.7, color='orange', edgecolor='black')
+                           alpha=0.8, color='#e74c3c', edgecolor='white', linewidth=1.5)
             
             ax2.set_title("Prediction vs Recent Form", fontweight='bold')
             ax2.set_ylabel("Value")
@@ -476,11 +514,11 @@ class PredictionVisualizer:
                     ha='center', va='center', transform=ax2.transAxes)
             ax2.set_title("Recent Form Not Available")
         
-        # Add confidence legend
+        # Add enhanced confidence legend
         legend_elements = [
-            plt.Rectangle((0,0),1,1, color='#ff4444', alpha=0.7, label='Low Confidence (<40%)'),
-            plt.Rectangle((0,0),1,1, color='#ffaa00', alpha=0.7, label='Medium Confidence (40-60%)'),
-            plt.Rectangle((0,0),1,1, color='#44aa44', alpha=0.7, label='High Confidence (>60%)')
+            plt.Rectangle((0,0),1,1, color='#e74c3c', alpha=0.8, label='Low Confidence (<40%)'),
+            plt.Rectangle((0,0),1,1, color='#f39c12', alpha=0.8, label='Medium Confidence (40-60%)'),
+            plt.Rectangle((0,0),1,1, color='#27ae60', alpha=0.8, label='High Confidence (>60%)')
         ]
         ax1.legend(handles=legend_elements, loc='upper right', fontsize=8)
         
