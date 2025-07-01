@@ -18,7 +18,7 @@ from tqdm import tqdm
 import numpy as np
 
 # Add src to path
-sys.path.append("src")
+sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
 from nba_api.stats.static import players, teams
 
@@ -26,6 +26,7 @@ from main import NBAStatPredictorApp
 from src.data.feature_engineer import FeatureEngineer
 from src.data.nba_data_collector import NBADataCollector
 from src.models.stat_predictors import ModelManager
+from src.visualization import PredictionVisualizer
 
 
 def setup_logging():
@@ -40,16 +41,16 @@ class InteractiveNBADashboard:
     """Interactive dashboard for NBA stat predictions with user control."""
 
     def __init__(self, db_path="data/nba_data.db"):
+        """Initialize the interactive dashboard."""
         self.db_path = db_path
         self.app = NBAStatPredictorApp(db_path)
         self.data_collector = NBADataCollector(db_path)
         self.model_manager = ModelManager(db_path)
         self.feature_engineer = FeatureEngineer(db_path)
-        self.logger = setup_logging()
-
-        # Initialize available teams and players for quick lookup
-        self.teams_info = self._get_teams_info()
+        self.visualizer = PredictionVisualizer(db_path)  # Add visualizer
         self.stat_types = ["pts", "reb", "ast", "stl", "blk"]
+        self.teams_info = self._get_teams_info()
+        self.logger = logging.getLogger(__name__)
 
     def _get_teams_info(self) -> Dict:
         """Get NBA teams information for quick lookup."""
@@ -412,6 +413,32 @@ class InteractiveNBADashboard:
 
             # Show recent performance context
             self._show_player_context(player_id, player_name, team_info["id"])
+
+            # NEW: Ask user if they want to see visualization
+            print("\n📊 Would you like to see a detailed prediction rationale visualization?")
+            show_viz = input("Show visualization? (y/N): ").strip().lower()
+            
+            if show_viz == 'y':
+                print("\n🎨 Generating comprehensive prediction rationale chart...")
+                try:
+                    chart_path = self.visualizer.show_prediction_rationale(
+                        player_id=player_id,
+                        player_name=player_name,
+                        predictions_df=predictions_df,
+                        features_df=features_df,
+                        recent_stats=self._get_recent_performance(player_id, games=10),
+                        opponent_name=team_info["full_name"]
+                    )
+                    
+                    if chart_path:
+                        print(f"✅ Visualization created successfully!")
+                        print(f"📁 Chart saved to: {chart_path}")
+                    else:
+                        print("❌ Could not create visualization")
+                        
+                except Exception as e:
+                    print(f"❌ Error creating visualization: {e}")
+                    self.logger.error(f"Visualization error: {e}")
 
         except Exception as e:
             print(f"❌ Error making prediction: {e}")
