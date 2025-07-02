@@ -183,7 +183,9 @@ class InteractiveNBADashboard:
         print("   3. 🧠 Train/Retrain Models (Enhanced optimization)")
         print("   4. 📈 View System Status (Quality metrics)")
         print("   5. 📋 View Recent Predictions")
-        print("   6. 🚪 Exit")
+        print("   6. 🔄 Resumable Data Collection")
+        print("   7. 📋 List Collection Sessions")
+        print("   8. 🚪 Exit")
         print("=" * 50)
 
     def handle_data_update(self):
@@ -1520,6 +1522,147 @@ class InteractiveNBADashboard:
         except Exception as e:
             print(f"❌ Error viewing predictions: {e}")
 
+    def handle_resumable_data_collection(self):
+        """Handle resumable data collection options."""
+        print("\n🔄 RESUMABLE DATA COLLECTION")
+        print("-" * 40)
+        print("1. 🆕 Start New Resumable Collection")
+        print("2. 🔄 Resume Existing Session")
+        print("3. 📋 List All Sessions")
+        print("4. 🔙 Back to Main Menu")
+        
+        choice = input("Select option (1-4): ").strip()
+        
+        if choice == "1":
+            self._start_new_resumable_collection()
+        elif choice == "2":
+            self._resume_existing_session()
+        elif choice == "3":
+            self.list_collection_sessions()
+        elif choice == "4":
+            return
+        else:
+            print("❌ Invalid choice.")
+
+    def _start_new_resumable_collection(self):
+        """Start a new resumable data collection session."""
+        print("\n🆕 STARTING NEW RESUMABLE COLLECTION")
+        print("-" * 40)
+        
+        # Get collection parameters
+        try:
+            players_limit = input("Number of players to collect (default: 200): ").strip()
+            players_limit = int(players_limit) if players_limit else 200
+            
+            session_name = input("Session name (optional, press Enter for auto-generated): ").strip()
+            if not session_name:
+                session_name = None
+            
+            print(f"\n🚀 Starting resumable collection for {players_limit} players...")
+            print("💡 You can interrupt this at any time with Ctrl+C and resume later!")
+            
+            # Start the resumable collection
+            result = self.app.collect_data_resumable(
+                players_limit=players_limit,
+                session_name=session_name
+            )
+            
+            print(f"\n✅ Resumable collection completed!")
+            print(f"Session ID: {result.get('session_id', 'N/A')}")
+            print(f"Status: {result.get('status', 'N/A')}")
+            
+        except KeyboardInterrupt:
+            print("\n🛑 Collection interrupted by user")
+            print("💡 You can resume this session later using the 'Resume Existing Session' option")
+        except Exception as e:
+            print(f"❌ Error starting resumable collection: {e}")
+
+    def _resume_existing_session(self):
+        """Resume an existing collection session."""
+        print("\n🔄 RESUMING EXISTING SESSION")
+        print("-" * 40)
+        
+        # List available sessions
+        sessions = self.data_collector.list_sessions()
+        
+        if not sessions:
+            print("No collection sessions found.")
+            return
+        
+        # Show sessions
+        print("Available sessions:")
+        for i, session in enumerate(sessions, 1):
+            status_emoji = {
+                "running": "🔄",
+                "completed": "✅", 
+                "failed": "❌",
+                "interrupted": "⏸️"
+            }.get(session["status"], "❓")
+            
+            progress = session.get("progress", {})
+            completed = progress.get("completed_operations", 0)
+            total = progress.get("total_operations", 0)
+            progress_pct = (completed / total * 100) if total > 0 else 0
+            
+            print(f"{i}. {status_emoji} {session['session_id']}")
+            print(f"   Status: {session['status']}")
+            print(f"   Progress: {completed}/{total} operations ({progress_pct:.1f}%)")
+            print(f"   Games Collected: {progress.get('games_collected', 0):,}")
+            print()
+        
+        # Get user choice
+        try:
+            choice = input("Select session to resume (number) or 'q' to quit: ").strip()
+            if choice.lower() == 'q':
+                return
+            
+            session_idx = int(choice) - 1
+            if 0 <= session_idx < len(sessions):
+                session_id = sessions[session_idx]["session_id"]
+                print(f"\n🔄 Resuming session: {session_id}")
+                
+                # Resume the session
+                self.app.resume_session(session_id)
+            else:
+                print("❌ Invalid session number.")
+                
+        except ValueError:
+            print("❌ Please enter a valid number.")
+        except Exception as e:
+            print(f"❌ Error resuming session: {e}")
+
+    def list_collection_sessions(self):
+        """List all available collection sessions."""
+        print("\n📋 COLLECTION SESSIONS")
+        print("-" * 40)
+        
+        sessions = self.data_collector.list_sessions()
+        
+        if not sessions:
+            print("No collection sessions found.")
+            return
+        
+        for i, session in enumerate(sessions, 1):
+            status_emoji = {
+                "running": "🔄",
+                "completed": "✅", 
+                "failed": "❌",
+                "interrupted": "⏸️"
+            }.get(session["status"], "❓")
+            
+            progress = session.get("progress", {})
+            completed = progress.get("completed_operations", 0)
+            total = progress.get("total_operations", 0)
+            progress_pct = (completed / total * 100) if total > 0 else 0
+            
+            print(f"{i}. {status_emoji} {session['session_id']}")
+            print(f"   Status: {session['status']}")
+            print(f"   Start Time: {session.get('start_time', 'N/A')}")
+            print(f"   Progress: {completed}/{total} operations ({progress_pct:.1f}%)")
+            print(f"   Games Collected: {progress.get('games_collected', 0):,}")
+            print(f"   Last Checkpoint: {session.get('last_checkpoint', 'N/A')}")
+            print()
+
     def run_interactive_session(self):
         """Run the main interactive session."""
         self.show_welcome_screen()
@@ -1540,10 +1683,14 @@ class InteractiveNBADashboard:
                 elif choice == "5":
                     self.view_recent_predictions()
                 elif choice == "6":
+                    self.handle_resumable_data_collection()
+                elif choice == "7":
+                    self.list_collection_sessions()
+                elif choice == "8":
                     print("\n[EXIT] Thanks for using NBA Stat Predictor!")
                     break
                 else:
-                    print("[ERROR] Invalid choice. Please select 1-6.")
+                    print("[ERROR] Invalid choice. Please select 1-8.")
 
                 # Add pause between operations
                 input("\nPress Enter to continue...")

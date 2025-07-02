@@ -5,6 +5,8 @@ NBA Data Collector - Handles data collection from NBA APIs and other sources.
 import logging
 import sqlite3
 import time
+import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -46,6 +48,477 @@ class NBADataCollector:
         self.circuit_breaker_delay = 30  # Wait 30 seconds when circuit breaker is tripped
         self.circuit_breaker_active = False
         self.last_failure_time = 0
+        
+        # Resumable pipeline state
+        self.checkpoint_dir = "data/checkpoints"
+        self.ensure_checkpoint_dir()
+        self.current_session_id = None
+        self.session_start_time = None
+
+    def ensure_checkpoint_dir(self):
+        """Ensure checkpoint directory exists."""
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+    def create_session(self, session_name: str = None) -> str:
+        """Create a new collection session with unique ID."""
+        if session_name is None:
+            session_name = f"collection_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        self.current_session_id = session_name
+        self.session_start_time = datetime.now().isoformat()
+        
+        # Create session checkpoint file
+        session_data = {
+            "session_id": self.current_session_id,
+            "start_time": self.session_start_time,
+            "status": "running",
+            "progress": {
+                "completed_players": [],
+                "failed_players": [],
+                "skipped_players": [],
+                "current_season": None,
+                "current_player_index": 0,
+                "total_operations": 0,
+                "completed_operations": 0,
+                "games_collected": 0,
+                "last_checkpoint": datetime.now().isoformat()
+            },
+            "settings": {},
+            "rate_limit_stats": {
+                "request_count": 0,
+                "success_count": 0,
+                "failure_count": 0,
+                "base_delay": self.base_delay,
+                "consecutive_failures": 0,
+                "circuit_breaker_active": False
+            }
+        }
+        
+        self._save_checkpoint(session_data)
+        logger.info(f"🔄 Created new collection session: {self.current_session_id}")
+        return self.current_session_id
+
+    def _save_checkpoint(self, session_data: Dict):
+        """Save current session state to checkpoint file."""
+        if self.current_session_id is None:
+            return
+            
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"{self.current_session_id}.json")
+        
+        # Update progress with current state
+        session_data["progress"]["last_checkpoint"] = datetime.now().isoformat()
+        session_data["rate_limit_stats"] = {
+            "request_count": self.request_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "base_delay": self.base_delay,
+            "consecutive_failures": self.consecutive_failures,
+            "circuit_breaker_active": self.circuit_breaker_active
+        }
+        
+        with open(checkpoint_path, 'w') as f:
+            json.dump(session_data, f, indent=2, default=str)
+        
+        logger.debug(f"💾 Checkpoint saved: {checkpoint_path}")
+
+    def _load_checkpoint(self, session_id: str) -> Optional[Dict]:
+        """Load session state from checkpoint file."""
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"{session_id}.json")
+        
+        if not os.path.exists(checkpoint_path):
+            return None
+            
+        try:
+            with open(checkpoint_path, 'r') as f:
+                session_data = json.load(f)
+            
+            # Restore rate limiting state
+            rate_stats = session_data.get("rate_limit_stats", {})
+            self.request_count = rate_stats.get("request_count", 0)
+            self.success_count = rate_stats.get("success_count", 0)
+            self.failure_count = rate_stats.get("failure_count", 0)
+            self.base_delay = rate_stats.get("base_delay", 2.0)
+            self.consecutive_failures = rate_stats.get("consecutive_failures", 0)
+            self.circuit_breaker_active = rate_stats.get("circuit_breaker_active", False)
+            
+            logger.info(f"📂 Loaded checkpoint for session: {session_id}")
+            return session_data
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading checkpoint {session_id}: {e}")
+            return None
+
+    def list_sessions(self) -> List[Dict]:
+        """List all available collection sessions."""
+        sessions = []
+        
+        for filename in os.listdir(self.checkpoint_dir):
+            if filename.endswith('.json'):
+                session_id = filename[:-5]  # Remove .json extension
+                checkpoint_path = os.path.join(self.checkpoint_dir, filename)
+                
+                try:
+                    with open(checkpoint_path, 'r') as f:
+                        session_data = json.load(f)
+                    
+                    sessions.append({
+                        "session_id": session_id,
+                        "start_time": session_data.get("start_time"),
+                        "status": session_data.get("status", "unknown"),
+                        "progress": session_data.get("progress", {}),
+                        "last_checkpoint": session_data.get("progress", {}).get("last_checkpoint")
+                    })
+                except Exception as e:
+                    logger.warning(f"Could not read session {session_id}: {e}")
+        
+        # Sort by start time (newest first), handle None values
+        def sort_key(x):
+            st = x.get("start_time")
+            return st if st is not None else ""
+        sessions.sort(key=sort_key, reverse=True)
+        return sessions
+
+    def resume_session(self, session_id: str) -> bool:
+        """Resume a previous collection session."""
+        session_data = self._load_checkpoint(session_id)
+        if session_data is None:
+            return False
+        
+        self.current_session_id = session_id
+        progress = session_data.get("progress", {})
+        
+        logger.info(f"🔄 Resuming session {session_id}")
+        logger.info(f"   Previous progress: {progress.get('completed_operations', 0)}/{progress.get('total_operations', 0)} operations")
+        logger.info(f"   Completed players: {len(progress.get('completed_players', []))}")
+        logger.info(f"   Failed players: {len(progress.get('failed_players', []))}")
+        
+        return True
+
+    def complete_session(self, success: bool = True):
+        """Mark current session as completed."""
+        if self.current_session_id is None:
+            return
+            
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"{self.current_session_id}.json")
+        
+        if os.path.exists(checkpoint_path):
+            try:
+                with open(checkpoint_path, 'r') as f:
+                    session_data = json.load(f)
+                
+                session_data["status"] = "completed" if success else "failed"
+                session_data["end_time"] = datetime.now().isoformat()
+                session_data["progress"]["last_checkpoint"] = datetime.now().isoformat()
+                
+                with open(checkpoint_path, 'w') as f:
+                    json.dump(session_data, f, indent=2, default=str)
+                
+                logger.info(f"✅ Session {self.current_session_id} marked as {'completed' if success else 'failed'}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error completing session {self.current_session_id}: {e}")
+
+    def collect_historical_data_resumable(
+        self,
+        players_list: List[int],
+        seasons: List[str] = ["2024-25", "2023-24", "2022-23", "2021-22", "2020-21", "2019-20", "2018-19", "2017-18"],
+        include_playoffs: bool = True,
+        include_all_star: bool = False,
+        force_refresh: bool = False,
+        session_name: str = None,
+        resume_session_id: str = None,
+        auto_save_interval: int = 10,  # Save checkpoint every N operations
+    ) -> Dict:
+        """Collect historical data with full resumable functionality."""
+        
+        # Initialize or resume session
+        if resume_session_id:
+            if not self.resume_session(resume_session_id):
+                raise ValueError(f"Could not resume session {resume_session_id}")
+            session_data = self._load_checkpoint(resume_session_id)
+            progress = session_data.get("progress", {})
+            
+            # Resume from where we left off
+            completed_players = set(progress.get("completed_players", []))
+            failed_players = set(progress.get("failed_players", []))
+            skipped_players = set(progress.get("skipped_players", []))
+            current_season = progress.get("current_season")
+            current_player_index = progress.get("current_player_index", 0)
+            total_games_collected = progress.get("games_collected", 0)
+            completed_operations = progress.get("completed_operations", 0)
+            
+            # Filter out already processed players
+            remaining_players = [p for p in players_list if p not in completed_players and p not in failed_players]
+            
+            logger.info(f"🔄 Resuming from season {current_season}, player index {current_player_index}")
+            logger.info(f"   Remaining players: {len(remaining_players)}")
+            
+        else:
+            # Start new session
+            self.create_session(session_name)
+            session_data = {
+                "progress": {
+                    "completed_players": [],
+                    "failed_players": [],
+                    "skipped_players": [],
+                    "current_season": None,
+                    "current_player_index": 0,
+                    "total_operations": len(players_list) * len(seasons),
+                    "completed_operations": 0,
+                    "games_collected": 0,
+                    "last_checkpoint": datetime.now().isoformat()
+                },
+                "settings": {
+                    "players_list": players_list,
+                    "seasons": seasons,
+                    "include_playoffs": include_playoffs,
+                    "include_all_star": include_all_star,
+                    "force_refresh": force_refresh
+                }
+            }
+            
+            completed_players = set()
+            failed_players = set()
+            skipped_players = set()
+            current_season = None
+            current_player_index = 0
+            total_games_collected = 0
+            completed_operations = 0
+            remaining_players = players_list
+
+        # Pre-analyze existing data to avoid unnecessary API calls
+        existing_data_summary = self._analyze_existing_data(remaining_players, seasons)
+        logger.info(f"Existing data analysis: {existing_data_summary['total_players_with_data']} players already have data")
+
+        successful_players = 0
+        total_operations = len(remaining_players) * len(seasons)
+        
+        # Add batch processing to reduce API load
+        batch_size = 10  # Process players in batches
+        logger.info(f"Using batch processing with size {batch_size} to reduce API load")
+        
+        # Track problematic players to skip
+        problematic_players = set()
+        max_failures_per_player = 3
+
+        try:
+            for season_idx, season in enumerate(seasons):
+                # Skip seasons that were already completed
+                if resume_session_id and current_season and seasons.index(current_season) > season_idx:
+                    logger.info(f"Skipping already completed season {season}")
+                    continue
+                
+                current_season = season
+                logger.info(f"Collecting data for season {season}")
+                season_games = 0
+                season_players = 0
+
+                # Determine starting player index for this season
+                if resume_session_id and season == current_season:
+                    start_player_index = current_player_index
+                else:
+                    start_player_index = 0
+
+                for player_idx in range(start_player_index, len(remaining_players)):
+                    player_id = remaining_players[player_idx]
+                    current_player_index = player_idx
+                    
+                    # Skip problematic players
+                    if player_id in problematic_players:
+                        logger.debug(f"Skipping problematic player {player_id} for {season}")
+                        skipped_players.add(player_id)
+                        completed_operations += 1
+                        continue
+                    
+                    try:
+                        # Check if we need to collect data for this player in this season
+                        if not force_refresh and self._player_has_sufficient_data_for_season(player_id, season):
+                            logger.debug(f"Player {player_id} already has sufficient data for {season}, skipping")
+                            skipped_players.add(player_id)
+                            completed_operations += 1
+                            continue
+
+                        # Collect regular season data
+                        df = self.get_player_game_logs(player_id, season, "Regular Season")
+                        
+                        # Collect playoff data if requested
+                        if include_playoffs:
+                            try:
+                                playoff_df = self.get_player_game_logs(player_id, season, "Playoffs")
+                                if not playoff_df.empty:
+                                    df = pd.concat([df, playoff_df], ignore_index=True)
+                                    logger.debug(f"Added {len(playoff_df)} playoff games for player {player_id}")
+                            except Exception as e:
+                                logger.debug(f"No playoff data for player {player_id} in {season}: {e}")
+
+                        # Filter out All-Star games if requested
+                        if not include_all_star and not df.empty:
+                            df = df[~df["matchup"].str.contains("All-Star", na=False)]
+
+                        # Process and store the data
+                        if not df.empty:
+                            processed_df = self._process_game_log_data(df)
+                            
+                            # Check for existing games to avoid duplicates
+                            new_games_count = self._check_existing_games(player_id, season, processed_df)
+                            if new_games_count > 0:
+                                # Filter to only new games
+                                filtered_df = self._filter_new_games(player_id, season, processed_df)
+                                
+                                if not filtered_df.empty:
+                                    # Store the data
+                                    for _, row in filtered_df.iterrows():
+                                        game_data = row.to_dict()
+                                        game_data["player_id"] = player_id
+                                        if self.store_player_game_data(game_data):
+                                            total_games_collected += 1
+                                            season_games += 1
+                                    
+                                    logger.debug(f"Stored {len(filtered_df)} new games for player {player_id} in {season}")
+                                else:
+                                    logger.debug(f"No new games to store for player {player_id} in {season}")
+                            else:
+                                logger.debug(f"All games for player {player_id} in {season} already exist")
+
+                            successful_players += 1
+                            season_players += 1
+                            completed_players.add(player_id)
+                        else:
+                            logger.debug(f"No data found for player {player_id} in {season}")
+                            skipped_players.add(player_id)
+
+                    except Exception as e:
+                        logger.error(f"Error collecting data for player {player_id} in {season}: {e}")
+                        failed_players.add(player_id)
+                        
+                        # Track failures for problematic players
+                        if player_id not in problematic_players:
+                            problematic_players.add(player_id)
+                    
+                    completed_operations += 1
+                    
+                    # Save checkpoint periodically
+                    if completed_operations % auto_save_interval == 0:
+                        session_data["progress"] = {
+                            "completed_players": list(completed_players),
+                            "failed_players": list(failed_players),
+                            "skipped_players": list(skipped_players),
+                            "current_season": current_season,
+                            "current_player_index": current_player_index,
+                            "total_operations": total_operations,
+                            "completed_operations": completed_operations,
+                            "games_collected": total_games_collected,
+                            "last_checkpoint": datetime.now().isoformat()
+                        }
+                        self._save_checkpoint(session_data)
+                        
+                        # Log progress
+                        progress_pct = (completed_operations / total_operations) * 100
+                        logger.info(f"Progress: {completed_operations}/{total_operations} operations ({progress_pct:.1f}%)")
+                        logger.info(f"Rate limit stats: {(self.success_count/(self.request_count+1)*100):.1f}% success rate, {self.base_delay:.2f}s delay, {self.consecutive_failures} consecutive failures")
+
+                logger.info(f"Season {season} complete: {season_games} games from {season_players} players")
+                logger.info(f"Progress: {completed_operations}/{total_operations} operations completed")
+                
+                # Add longer delay between seasons to avoid overwhelming the API
+                if season != seasons[-1]:  # Don't delay after the last season
+                    logger.info("Adding 5-second delay between seasons to respect API limits...")
+                    time.sleep(5)
+
+            # Final checkpoint save
+            session_data["progress"] = {
+                "completed_players": list(completed_players),
+                "failed_players": list(failed_players),
+                "skipped_players": list(skipped_players),
+                "current_season": current_season,
+                "current_player_index": current_player_index,
+                "total_operations": total_operations,
+                "completed_operations": completed_operations,
+                "games_collected": total_games_collected,
+                "last_checkpoint": datetime.now().isoformat()
+            }
+            self._save_checkpoint(session_data)
+
+            # Mark session as completed
+            self.complete_session(True)
+
+            logger.info("=" * 60)
+            logger.info("RESUMABLE DATA COLLECTION SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"Session ID: {self.current_session_id}")
+            logger.info(f"Total games collected: {total_games_collected:,}")
+            logger.info(f"Successful players: {successful_players}")
+            logger.info(f"Failed players: {len(failed_players)}")
+            logger.info(f"Skipped players (existing data): {len(skipped_players)}")
+            logger.info(f"Seasons covered: {len(seasons)}")
+            if successful_players > 0:
+                logger.info(f"Average games per player: {total_games_collected / successful_players:.1f}")
+            logger.info("=" * 60)
+
+            return {
+                "session_id": self.current_session_id,
+                "total_games_collected": total_games_collected,
+                "successful_players": successful_players,
+                "failed_players": len(failed_players),
+                "skipped_players": len(skipped_players),
+                "seasons_covered": len(seasons),
+                "status": "completed"
+            }
+
+        except KeyboardInterrupt:
+            logger.info("🛑 Collection interrupted by user")
+            # Save current state
+            session_data["progress"] = {
+                "completed_players": list(completed_players),
+                "failed_players": list(failed_players),
+                "skipped_players": list(skipped_players),
+                "current_season": current_season,
+                "current_player_index": current_player_index,
+                "total_operations": total_operations,
+                "completed_operations": completed_operations,
+                "games_collected": total_games_collected,
+                "last_checkpoint": datetime.now().isoformat()
+            }
+            self._save_checkpoint(session_data)
+            self.complete_session(False)
+            
+            return {
+                "session_id": self.current_session_id,
+                "total_games_collected": total_games_collected,
+                "successful_players": successful_players,
+                "failed_players": len(failed_players),
+                "skipped_players": len(skipped_players),
+                "status": "interrupted",
+                "resume_session_id": self.current_session_id
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Collection failed: {e}")
+            # Save current state
+            session_data["progress"] = {
+                "completed_players": list(completed_players),
+                "failed_players": list(failed_players),
+                "skipped_players": list(skipped_players),
+                "current_season": current_season,
+                "current_player_index": current_player_index,
+                "total_operations": total_operations,
+                "completed_operations": completed_operations,
+                "games_collected": total_games_collected,
+                "last_checkpoint": datetime.now().isoformat()
+            }
+            self._save_checkpoint(session_data)
+            self.complete_session(False)
+            
+            return {
+                "session_id": self.current_session_id,
+                "total_games_collected": total_games_collected,
+                "successful_players": successful_players,
+                "failed_players": len(failed_players),
+                "skipped_players": len(skipped_players),
+                "status": "failed",
+                "error": str(e),
+                "resume_session_id": self.current_session_id
+            }
 
     def setup_database(self):
         """Set up SQLite database for storing NBA data."""

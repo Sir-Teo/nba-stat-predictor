@@ -11,6 +11,7 @@ A comprehensive machine learning system that predicts NBA player statistics usin
 - **🎨 Interactive Dashboard** - Enhanced interface with quality metrics and advanced prediction modes
 - **📈 Real-time Predictions** - Advanced predictions with confidence scoring and visualization
 - **📊 Accuracy Tracking** - Continuous monitoring with enhanced metrics and performance analysis
+- **🔄 Resumable Pipeline** - Full checkpoint and resume functionality for long-running data collection
 
 ## 📁 Project Structure
 
@@ -175,6 +176,103 @@ Check if models need retraining and retrain automatically:
 ```bash
 python main.py retrain
 ```
+
+### Resumable Data Collection
+
+The enhanced pipeline now supports resumable data collection, allowing you to interrupt and resume long-running collection processes:
+
+#### Start a Resumable Collection
+
+```bash
+# Start a resumable collection for 200 players
+python main.py resumable-collect --players-limit 200
+
+# Start with a custom session name
+python main.py resumable-collect --players-limit 200 --session-name "my_collection"
+```
+
+#### List Available Sessions
+
+```bash
+# View all collection sessions and their status
+python main.py list-sessions
+```
+
+Output:
+```
+================================================================================
+AVAILABLE COLLECTION SESSIONS
+================================================================================
+1. ✅ collection_20241228_143022
+   Status: completed
+   Start Time: 2024-12-28T14:30:22
+   Progress: 1800/1800 operations (100.0%)
+   Games Collected: 15,234
+   Last Checkpoint: 2024-12-28T16:45:33
+
+2. ⏸️ collection_20241228_170000
+   Status: interrupted
+   Start Time: 2024-12-28T17:00:00
+   Progress: 450/1800 operations (25.0%)
+   Games Collected: 3,456
+   Last Checkpoint: 2024-12-28T17:30:15
+```
+
+#### Resume an Interrupted Session
+
+```bash
+# Resume a specific session
+python main.py resume-session --session-id collection_20241228_170000
+```
+
+#### Interactive Dashboard Resumable Features
+
+The interactive dashboard also supports resumable functionality:
+
+```bash
+python interactive_dashboard.py
+```
+
+Then select:
+- **Option 6**: Resumable Data Collection
+  - Start new resumable collection
+  - Resume existing session
+  - List all sessions
+
+#### Key Benefits
+
+- **🔄 Interrupt and Resume**: Stop collection at any time with Ctrl+C and resume later
+- **💾 Automatic Checkpoints**: Progress is saved every 10 operations automatically
+- **📊 Session Management**: Track multiple collection sessions with detailed progress
+- **🎯 Smart Resumption**: Automatically skips already completed work
+- **📈 Progress Tracking**: Real-time progress updates and completion estimates
+- **🛡️ Error Recovery**: Robust error handling with circuit breaker protection
+
+#### Example Workflow
+
+1. **Start Collection**:
+   ```bash
+   python main.py resumable-collect --players-limit 200
+   ```
+
+2. **Interrupt** (Ctrl+C):
+   ```
+   🛑 Collection interrupted by user
+   💡 You can resume this session later using:
+      python main.py resume-session --session-id collection_20241228_170000
+   ```
+
+3. **Check Status**:
+   ```bash
+   python main.py list-sessions
+   ```
+
+4. **Resume**:
+   ```bash
+   python main.py resume-session --session-id collection_20241228_170000
+   ```
+
+The system will automatically resume from where it left off, skipping already completed work and continuing with the remaining players and seasons.
 
 ## System Architecture
 

@@ -1,0 +1,56 @@
+{
+  "progress": {
+    "completed_players": [],
+    "failed_players": [
+      1629058,
+      203915,
+      1627783
+    ],
+    "skipped_players": [
+      1629058,
+      1642502,
+      1627783,
+      1642505,
+      203915
+    ],
+    "current_season": "2016-17",
+    "current_player_index": 4,
+    "total_operations": 45,
+    "completed_operations": 45,
+    "games_collected": 0,
+    "last_checkpoint": "2025-07-01T18:40:00.266186"
+  },
+  "settings": {
+    "players_list": [
+      1629058,
+      1642502,
+      1627783,
+      1642505,
+      203915
+    ],
+    "seasons": [
+      "2024-25",
+      "2023-24",
+      "2022-23",
+      "2021-22",
+      "2020-21",
+      "2019-20",
+      "2018-19",
+      "2017-18",
+      "2016-17"
+    ],
+    "include_playoffs": true,
+    "include_all_star": false,
+    "force_refresh": false
+  },
+  "rate_limit_stats": {
+    "request_count": 48,
+    "success_count": 48,
+    "failure_count": 0,
+    "base_delay": 1.5,
+    "consecutive_failures": 0,
+    "circuit_breaker_active": false
+  },
+  "status": "completed",
+  "end_time": "2025-07-01T18:40:00.266155"
+}

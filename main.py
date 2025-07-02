@@ -122,6 +122,138 @@ class NBAStatPredictorApp:
 
         logger.info("Enhanced data collection completed!")
 
+    def collect_data_resumable(self, players_limit: int = 100, session_name: str = None, resume_session_id: str = None):
+        """Collect NBA data with full resumable functionality."""
+        logger.info("Starting resumable data collection...")
+
+        # Get comprehensive player list
+        try:
+            # Get star players for better training data
+            star_players = self.data_collector.get_team_leaders()
+            
+            # Get additional popular players for comprehensive coverage
+            popular_players = self.data_collector.get_popular_players(players_limit)
+            
+            # Combine and deduplicate
+            all_players = list(set(star_players + popular_players))
+            
+            # Limit to requested number
+            if len(all_players) > players_limit:
+                all_players = all_players[:players_limit]
+
+            logger.info(f"Selected {len(all_players)} players for resumable data collection")
+
+        except Exception as e:
+            logger.warning(f"Could not get comprehensive player list, using fallback method: {e}")
+            # Fallback to original method
+            all_players_df = self.data_collector.get_all_players()
+            if all_players_df.empty:
+                logger.error("Could not fetch NBA players data")
+                return
+            all_players = all_players_df.head(players_limit)["id"].tolist()
+
+        # Enhanced seasons list (8-9 seasons for comprehensive coverage)
+        seasons = [
+            "2024-25", "2023-24", "2022-23", "2021-22", "2020-21", 
+            "2019-20", "2018-19", "2017-18", "2016-17"
+        ]
+        
+        logger.info(f"Collecting resumable data for {len(all_players)} players across {len(seasons)} seasons...")
+
+        # Use resumable data collection
+        result = self.data_collector.collect_historical_data_resumable(
+            players_list=all_players,
+            seasons=seasons,
+            include_playoffs=True,
+            include_all_star=False,
+            force_refresh=False,
+            session_name=session_name,
+            resume_session_id=resume_session_id,
+            auto_save_interval=10,
+        )
+
+        # Show collection summary
+        logger.info("=" * 60)
+        logger.info("RESUMABLE DATA COLLECTION SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Session ID: {result.get('session_id', 'N/A')}")
+        logger.info(f"Status: {result.get('status', 'N/A')}")
+        logger.info(f"Total games collected: {result.get('total_games_collected', 0):,}")
+        logger.info(f"Successful players: {result.get('successful_players', 0)}")
+        logger.info(f"Failed players: {result.get('failed_players', 0)}")
+        logger.info(f"Skipped players: {result.get('skipped_players', 0)}")
+        
+        if result.get('status') == 'interrupted' or result.get('status') == 'failed':
+            logger.info(f"To resume this session, use: python main.py resume-session --session-id {result.get('resume_session_id')}")
+        
+        logger.info("=" * 60)
+
+        logger.info("Resumable data collection completed!")
+        
+        return result
+
+    def list_sessions(self):
+        """List all available collection sessions."""
+        sessions = self.data_collector.list_sessions()
+        
+        if not sessions:
+            print("No collection sessions found.")
+            return
+        
+        print("\n" + "=" * 80)
+        print("AVAILABLE COLLECTION SESSIONS")
+        print("=" * 80)
+        
+        for i, session in enumerate(sessions, 1):
+            status_emoji = {
+                "running": "🔄",
+                "completed": "✅", 
+                "failed": "❌",
+                "interrupted": "⏸️"
+            }.get(session["status"], "❓")
+            
+            progress = session.get("progress", {})
+            completed = progress.get("completed_operations", 0)
+            total = progress.get("total_operations", 0)
+            progress_pct = (completed / total * 100) if total > 0 else 0
+            
+            print(f"{i}. {status_emoji} {session['session_id']}")
+            print(f"   Status: {session['status']}")
+            print(f"   Start Time: {session.get('start_time', 'N/A')}")
+            print(f"   Progress: {completed}/{total} operations ({progress_pct:.1f}%)")
+            print(f"   Games Collected: {progress.get('games_collected', 0):,}")
+            print(f"   Last Checkpoint: {session.get('last_checkpoint', 'N/A')}")
+            print()
+        
+        print("=" * 80)
+        print("To resume a session, use: python main.py resume-session --session-id <SESSION_ID>")
+
+    def resume_session(self, session_id: str):
+        """Resume a specific collection session."""
+        logger.info(f"Resuming session: {session_id}")
+        
+        # Get session details
+        session_data = self.data_collector._load_checkpoint(session_id)
+        if not session_data:
+            logger.error(f"Session {session_id} not found or could not be loaded")
+            return
+        
+        settings = session_data.get("settings", {})
+        players_list = settings.get("players_list", [])
+        seasons = settings.get("seasons", [])
+        
+        if not players_list or not seasons:
+            logger.error("Session settings are incomplete, cannot resume")
+            return
+        
+        logger.info(f"Resuming session with {len(players_list)} players and {len(seasons)} seasons")
+        
+        # Resume the collection
+        self.collect_data_resumable(
+            players_limit=len(players_list),
+            resume_session_id=session_id
+        )
+
     def train_models(self):
         """Train enhanced prediction models with comprehensive features."""
         logger.info("Starting enhanced model training...")
@@ -202,6 +334,7 @@ class NBAStatPredictorApp:
         logger.info(f"Finding players with at least {min_games} games and {min_seasons} seasons")
         
         try:
+            import sqlite3
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
@@ -491,6 +624,9 @@ def main():
             "enhanced-train",
             "force-refresh",
             "backtest",
+            "resumable-collect",
+            "list-sessions",
+            "resume-session",
         ],
         help="Command to execute",
     )
@@ -517,6 +653,16 @@ def main():
         "--db-path",
         default="data/nba_data.db",
         help="Path to SQLite database (default: data/nba_data.db)",
+    )
+
+    parser.add_argument(
+        "--session-name",
+        help="Custom name for resumable collection session"
+    )
+
+    parser.add_argument(
+        "--session-id",
+        help="Session ID to resume (for resume-session command)"
     )
 
     args = parser.parse_args()
@@ -602,6 +748,23 @@ def main():
 
         elif args.command == "backtest":
             app.run_backtest(args.season)
+
+        elif args.command == "resumable-collect":
+            logger.info("Running resumable data collection...")
+            app.collect_data_resumable(
+                players_limit=args.players_limit,
+                session_name=args.session_name
+            )
+
+        elif args.command == "list-sessions":
+            app.list_sessions()
+
+        elif args.command == "resume-session":
+            if not args.session_id:
+                logger.error("Session ID is required for resume-session command")
+                print("Usage: python main.py resume-session --session-id <SESSION_ID>")
+                sys.exit(1)
+            app.resume_session(args.session_id)
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")

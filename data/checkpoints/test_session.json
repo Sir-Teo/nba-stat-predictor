@@ -1,0 +1,31 @@
+{
+  "session_id": "test_session",
+  "start_time": "2025-07-01T18:36:59.438726",
+  "status": "completed",
+  "progress": {
+    "completed_players": [
+      123,
+      456,
+      789
+    ],
+    "failed_players": [
+      999
+    ],
+    "skipped_players": [],
+    "current_season": "2023-24",
+    "current_player_index": 5,
+    "total_operations": 100,
+    "completed_operations": 25,
+    "games_collected": 150,
+    "last_checkpoint": "2025-07-01T18:36:59.438916"
+  },
+  "rate_limit_stats": {
+    "request_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "base_delay": 2.0,
+    "consecutive_failures": 0,
+    "circuit_breaker_active": false
+  },
+  "end_time": "2025-07-01T18:36:59.438913"
+}
