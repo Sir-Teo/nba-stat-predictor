@@ -202,6 +202,9 @@ class AdvancedFeatureEngineer:
                     player_id, opponent_team_id, target_date, conn
                 )
             )
+        else:
+            # Add default opponent features to ensure consistency
+            features.update(self._get_default_opponent_features())
 
         conn.close()
 
@@ -1075,6 +1078,35 @@ class AdvancedFeatureEngineer:
                 )  # Higher = more consistent
 
         return features
+
+    def _get_default_opponent_features(self) -> Dict:
+        """Get default opponent features to ensure consistency between training and prediction."""
+        return {
+            "opp_def_efficiency": 1.1,
+            "opp_reb_def_rate": 1.0,
+            "opp_def_fg_pct": 0.46,
+            "opp_def_3pt_pct": 0.35,
+            "opp_steal_rate": 0.8,
+            "opp_block_rate": 0.8,
+            "opp_pts_def_relative": 1.0,
+            "opp_fg_def_relative": 1.0,
+            "opp_team_pace": 1.0,
+            "opp_team_offensive_rating": 1.0,
+            "opp_team_ball_movement": 1.0,
+            "opp_team_momentum": 0.0,
+            "opp_team_consistency": 0.8,
+            "opp_recent_avg_pts": 110,
+            "opp_def_pts_allowed": 112,
+            "opp_def_reb_allowed": 43,
+            "opp_def_ast_allowed": 25,
+            "opp_def_stl_allowed": 8,
+            "opp_def_blk_allowed": 5,
+            "opp_def_rating_pts": 1.0,
+            "opp_def_rating_reb": 1.0,
+            "opp_def_rating_ast": 1.0,
+            "opp_def_rating_stl": 1.0,
+            "opp_def_rating_blk": 1.0,
+        }
 
     def _calculate_trend(self, values: np.ndarray) -> float:
         """Calculate the trend (slope) of a series of values."""

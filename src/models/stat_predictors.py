@@ -179,24 +179,39 @@ class AdvancedStatPredictor:
                 
                 # Apply decline factor more aggressively for points (scoring typically declines first)
                 if self.stat_type == "pts":
-                    if age >= 40:  # Special case for 40+ players
-                        # Cap points at reasonable levels for 40+ players
+                    if age >= 40:  # Special case for 40+ players (LeBron territory)
+                        # Much more aggressive reduction for 40+ players
+                        if predictions[i] > 25:
+                            # Cap at recent form + small variance for 40+ players
+                            adjusted_predictions[i] = min(predictions[i], 22 + np.random.normal(0, 1.5))
+                        adjusted_predictions[i] *= decline_factor * 0.75  # 25% reduction for 40+
+                    elif age >= 38:
                         if predictions[i] > 30:
                             adjusted_predictions[i] = min(predictions[i], 25 + np.random.normal(0, 2))
-                        adjusted_predictions[i] *= decline_factor * 0.85  # Additional 15% reduction for 40+
-                    elif age >= 38:
-                        if predictions[i] > 35:
-                            adjusted_predictions[i] = min(predictions[i], 28 + np.random.normal(0, 3))
-                        adjusted_predictions[i] *= decline_factor * 0.9   # Additional 10% reduction for 38+
+                        adjusted_predictions[i] *= decline_factor * 0.8   # 20% reduction for 38+
+                    elif age >= 36:
+                        if predictions[i] > 32:
+                            adjusted_predictions[i] = min(predictions[i], 27 + np.random.normal(0, 2.5))
+                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 36+
                     else:
-                        adjusted_predictions[i] *= decline_factor
+                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 35+
                 
                 # Apply lighter decline for other stats
                 elif self.stat_type in ["reb", "ast"]:
-                    adjusted_predictions[i] *= decline_factor * 0.95  # Lighter decline for rebounds/assists
+                    if age >= 40:
+                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 40+
+                    elif age >= 38:
+                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 38+
+                    else:
+                        adjusted_predictions[i] *= decline_factor * 0.95  # 5% reduction for 35+
                 
                 elif self.stat_type in ["stl", "blk"]:
-                    adjusted_predictions[i] *= decline_factor * 0.9   # Moderate decline for defensive stats
+                    if age >= 40:
+                        adjusted_predictions[i] *= decline_factor * 0.8   # 20% reduction for 40+
+                    elif age >= 38:
+                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 38+
+                    else:
+                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 35+
                     
             elif age > 30:  # Regular veteran
                 # Light decline factor
@@ -459,6 +474,9 @@ class AdvancedStatPredictor:
         
         # Ensure column order matches training
         X_aligned = X_aligned[X_train_columns]
+        
+        # Reset feature names to avoid sklearn warnings
+        X_aligned.columns = X_train_columns
         
         return X_aligned
 
@@ -789,7 +807,9 @@ class AdvancedEnsembleStatPredictor(AdvancedStatPredictor):
         for i, (name, model) in enumerate(self.base_models.items()):
             try:
                 if model is not None:
-                    base_predictions[:, i] = model.predict(X_scaled)
+                    # Convert to numpy array to avoid feature name warnings
+                    X_array = X_scaled if isinstance(X_scaled, np.ndarray) else X_scaled.values
+                    base_predictions[:, i] = model.predict(X_array)
                     successful_predictions += 1
                 else:
                     logger.warning(f"Base model {name} is None, using fallback")
