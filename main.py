@@ -52,7 +52,7 @@ class NBAStatPredictorApp:
 
         # Get comprehensive player list with better selection
         try:
-            # Get star players for better training data
+        # Get star players for better training data
             star_players = self.data_collector.get_team_leaders()
             
             # Get additional popular players for comprehensive coverage
@@ -189,7 +189,7 @@ class NBAStatPredictorApp:
         logger.info("=" * 60)
 
         logger.info("Resumable data collection completed!")
-        
+
         return result
 
     def list_sessions(self):

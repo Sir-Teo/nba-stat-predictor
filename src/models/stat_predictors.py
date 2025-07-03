@@ -165,59 +165,87 @@ class AdvancedStatPredictor:
         return predictions
 
     def _apply_age_adjustments(self, predictions: np.ndarray, X: pd.DataFrame) -> np.ndarray:
-        """Apply age-based adjustments to predictions for more realistic results."""
+        """Apply age-based adjustments to predictions for more realistic results, with extra recent form emphasis for aging players."""
         if "player_age" not in X.columns:
             return predictions
             
         adjusted_predictions = predictions.copy()
         
         for i, age in enumerate(X["player_age"]):
-            if age > 34:  # Aging veteran
-                # Get decline factor if available
+            # --- NEW: Get recent form and EWMA features if available ---
+            stat = self.stat_type
+            recent_form = None
+            ewma_3 = None
+            ewma_5 = None
+            # Try to get recent form and EWMA features
+            if f"{stat}_recent_form_index" in X.columns:
+                recent_form = X[f"{stat}_recent_form_index"].iloc[i]
+            if f"{stat}_ewma_3g" in X.columns:
+                ewma_3 = X[f"{stat}_ewma_3g"].iloc[i]
+            if f"{stat}_ewma_5g" in X.columns:
+                ewma_5 = X[f"{stat}_ewma_5g"].iloc[i]
+
+            # Default to model prediction if not available
+            fallback_recent = predictions[i]
+            fallback_ewma = predictions[i]
+            
+            # For aging veterans, blend prediction with recent form and EWMA
+            if age > 34:
                 decline_factor = X.get("age_decline_factor", pd.Series([1.0])).iloc[i] if i < len(X) else 1.0
                 recent_form_weight = X.get("recent_form_weight", pd.Series([0.8])).iloc[i] if i < len(X) else 0.8
-                
-                # Apply decline factor more aggressively for points (scoring typically declines first)
-                if self.stat_type == "pts":
-                    if age >= 40:  # Special case for 40+ players (LeBron territory)
-                        # Much more aggressive reduction for 40+ players
-                        if predictions[i] > 25:
-                            # Cap at recent form + small variance for 40+ players
-                            adjusted_predictions[i] = min(predictions[i], 22 + np.random.normal(0, 1.5))
-                        adjusted_predictions[i] *= decline_factor * 0.75  # 25% reduction for 40+
+
+                # Compute blended recent form (prioritize recent_form, then ewma_3, then ewma_5)
+                blend_sources = [v for v in [recent_form, ewma_3, ewma_5, fallback_recent] if v is not None]
+                if len(blend_sources) > 0:
+                    # Weight: more recent = higher weight as age increases
+                    if age >= 40:
+                        blend_w = 0.7  # 70% recent form, 30% model
                     elif age >= 38:
-                        if predictions[i] > 30:
-                            adjusted_predictions[i] = min(predictions[i], 25 + np.random.normal(0, 2))
-                        adjusted_predictions[i] *= decline_factor * 0.8   # 20% reduction for 38+
+                        blend_w = 0.55
                     elif age >= 36:
-                        if predictions[i] > 32:
-                            adjusted_predictions[i] = min(predictions[i], 27 + np.random.normal(0, 2.5))
-                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 36+
+                        blend_w = 0.4
                     else:
-                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 35+
-                
-                # Apply lighter decline for other stats
+                        blend_w = 0.25
+                    # Blend prediction
+                    blended = blend_w * blend_sources[0] + (1 - blend_w) * predictions[i]
+                else:
+                    blended = predictions[i]
+
+                # Apply decline factor as before
+                if self.stat_type == "pts":
+                    if age >= 40:
+                        if blended > 25:
+                            blended = min(blended, 22 + np.random.normal(0, 1.5))
+                        blended *= decline_factor * 0.75
+                    elif age >= 38:
+                        if blended > 30:
+                            blended = min(blended, 25 + np.random.normal(0, 2))
+                        blended *= decline_factor * 0.8
+                    elif age >= 36:
+                        if blended > 32:
+                            blended = min(blended, 27 + np.random.normal(0, 2.5))
+                        blended *= decline_factor * 0.85
+                    else:
+                        blended *= decline_factor * 0.9
                 elif self.stat_type in ["reb", "ast"]:
                     if age >= 40:
-                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 40+
+                        blended *= decline_factor * 0.85
                     elif age >= 38:
-                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 38+
+                        blended *= decline_factor * 0.9
                     else:
-                        adjusted_predictions[i] *= decline_factor * 0.95  # 5% reduction for 35+
-                
+                        blended *= decline_factor * 0.95
                 elif self.stat_type in ["stl", "blk"]:
                     if age >= 40:
-                        adjusted_predictions[i] *= decline_factor * 0.8   # 20% reduction for 40+
+                        blended *= decline_factor * 0.8
                     elif age >= 38:
-                        adjusted_predictions[i] *= decline_factor * 0.85  # 15% reduction for 38+
+                        blended *= decline_factor * 0.85
                     else:
-                        adjusted_predictions[i] *= decline_factor * 0.9   # 10% reduction for 35+
-                    
-            elif age > 30:  # Regular veteran
+                        blended *= decline_factor * 0.9
+                adjusted_predictions[i] = blended
+            elif age > 30:
                 # Light decline factor
                 decline_factor = X.get("age_decline_factor", pd.Series([1.0])).iloc[i] if i < len(X) else 1.0
                 adjusted_predictions[i] *= decline_factor
-        
         return adjusted_predictions
 
     def _evaluate_model(self, X: pd.DataFrame, y: pd.Series, cv) -> Dict[str, float]:

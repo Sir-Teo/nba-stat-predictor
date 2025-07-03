@@ -220,7 +220,7 @@ class AdvancedFeatureEngineer:
     def _create_rolling_stats(
         self, df: pd.DataFrame, windows: List[int] = [3, 5, 10]
     ) -> Dict:
-        """Create comprehensive rolling statistics for different time windows."""
+        """Create comprehensive rolling statistics for different time windows, including EWMAs and recent form index."""
         features = {}
 
         stat_columns = [
@@ -239,6 +239,26 @@ class AdvancedFeatureEngineer:
         # Ensure data is sorted by date
         df_sorted = df.sort_values("game_date").reset_index(drop=True)
 
+        # --- NEW: Exponential Weighted Moving Averages (EWMAs) ---
+        for stat in stat_columns:
+            if stat in df_sorted.columns:
+                # EWMA with half-life of 3 and 5 games
+                ewma_3 = df_sorted[stat].ewm(halflife=3, min_periods=1).mean().iloc[-1]
+                ewma_5 = df_sorted[stat].ewm(halflife=5, min_periods=1).mean().iloc[-1]
+                features[f"{stat}_ewma_3g"] = ewma_3
+                features[f"{stat}_ewma_5g"] = ewma_5
+
+        # --- NEW: Recent Form Index (weighted sum of last 5 games) ---
+        weights = np.array([0.4, 0.25, 0.15, 0.12, 0.08])  # Most recent gets highest weight
+        for stat in stat_columns:
+            if stat in df_sorted.columns and len(df_sorted) >= 5:
+                last5 = df_sorted[stat].tail(5).values
+                if len(last5) == 5:
+                    features[f"{stat}_recent_form_index"] = np.dot(last5, weights)
+                else:
+                    features[f"{stat}_recent_form_index"] = np.mean(last5)
+
+        # --- Existing rolling stats logic ---
         for window in windows:
             for stat in stat_columns:
                 if stat in df_sorted.columns:

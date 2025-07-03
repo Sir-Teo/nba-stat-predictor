@@ -196,7 +196,7 @@ class InteractiveNBADashboard:
         # Show enhanced data status with freshness check
         try:
             freshness_info = self.data_collector.check_data_freshness()
-            
+
             if freshness_info['status'] == 'no_data':
                 print("📅 No data found in database")
                 print("💡 Recommendation: Run full data collection")
